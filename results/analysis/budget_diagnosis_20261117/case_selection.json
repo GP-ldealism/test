@@ -1,0 +1,356 @@
+{
+  "selection": "per-original LPIPS delta; best 5/worst 5; ID tie-break",
+  "crop_rule": "64x64 around inner four-neighbour boundary nearest image centre; no quality-based crop selection",
+  "cases": [
+    {
+      "original_image_id": "img0043",
+      "category": "improved",
+      "rank": 1,
+      "mean_lpips_delta": -0.02179670954744019,
+      "crops": [
+        {
+          "sample_id": "img0043_center30",
+          "x": 95,
+          "y": 26,
+          "width": 64,
+          "height": 64,
+          "m1_k": 8,
+          "lpips_delta": -0.07475540041923517
+        },
+        {
+          "sample_id": "img0043_scratch30",
+          "x": 96,
+          "y": 94,
+          "width": 64,
+          "height": 64,
+          "m1_k": 2,
+          "lpips_delta": 0.0093652717769146
+        },
+        {
+          "sample_id": "img0043_scatter30",
+          "x": 96,
+          "y": 95,
+          "width": 64,
+          "height": 64,
+          "m1_k": 5,
+          "lpips_delta": 0.0
+        }
+      ]
+    },
+    {
+      "original_image_id": "img0044",
+      "category": "improved",
+      "rank": 2,
+      "mean_lpips_delta": -0.015756473566095025,
+      "crops": [
+        {
+          "sample_id": "img0044_center30",
+          "x": 95,
+          "y": 26,
+          "width": 64,
+          "height": 64,
+          "m1_k": 8,
+          "lpips_delta": -0.06321892142295837
+        },
+        {
+          "sample_id": "img0044_scratch30",
+          "x": 94,
+          "y": 95,
+          "width": 64,
+          "height": 64,
+          "m1_k": 2,
+          "lpips_delta": 0.015949500724673302
+        },
+        {
+          "sample_id": "img0044_scatter30",
+          "x": 99,
+          "y": 93,
+          "width": 64,
+          "height": 64,
+          "m1_k": 5,
+          "lpips_delta": 0.0
+        }
+      ]
+    },
+    {
+      "original_image_id": "img0046",
+      "category": "improved",
+      "rank": 3,
+      "mean_lpips_delta": -0.01239658147096633,
+      "crops": [
+        {
+          "sample_id": "img0046_center30",
+          "x": 95,
+          "y": 26,
+          "width": 64,
+          "height": 64,
+          "m1_k": 8,
+          "lpips_delta": -0.0416950732469559
+        },
+        {
+          "sample_id": "img0046_scratch30",
+          "x": 95,
+          "y": 94,
+          "width": 64,
+          "height": 64,
+          "m1_k": 2,
+          "lpips_delta": 0.00450532883405691
+        },
+        {
+          "sample_id": "img0046_scatter30",
+          "x": 95,
+          "y": 95,
+          "width": 64,
+          "height": 64,
+          "m1_k": 5,
+          "lpips_delta": 0.0
+        }
+      ]
+    },
+    {
+      "original_image_id": "img0036",
+      "category": "improved",
+      "rank": 4,
+      "mean_lpips_delta": -0.01132805645465851,
+      "crops": [
+        {
+          "sample_id": "img0036_center30",
+          "x": 95,
+          "y": 26,
+          "width": 64,
+          "height": 64,
+          "m1_k": 8,
+          "lpips_delta": -0.04612022638320923
+        },
+        {
+          "sample_id": "img0036_scratch30",
+          "x": 95,
+          "y": 95,
+          "width": 64,
+          "height": 64,
+          "m1_k": 2,
+          "lpips_delta": 0.012136057019233697
+        },
+        {
+          "sample_id": "img0036_scatter30",
+          "x": 95,
+          "y": 103,
+          "width": 64,
+          "height": 64,
+          "m1_k": 5,
+          "lpips_delta": 0.0
+        }
+      ]
+    },
+    {
+      "original_image_id": "img0025",
+      "category": "improved",
+      "rank": 5,
+      "mean_lpips_delta": -0.007635513320565203,
+      "crops": [
+        {
+          "sample_id": "img0025_center30",
+          "x": 95,
+          "y": 26,
+          "width": 64,
+          "height": 64,
+          "m1_k": 8,
+          "lpips_delta": -0.03898538649082181
+        },
+        {
+          "sample_id": "img0025_scratch30",
+          "x": 94,
+          "y": 102,
+          "width": 64,
+          "height": 64,
+          "m1_k": 2,
+          "lpips_delta": 0.016078846529126202
+        },
+        {
+          "sample_id": "img0025_scatter30",
+          "x": 98,
+          "y": 95,
+          "width": 64,
+          "height": 64,
+          "m1_k": 5,
+          "lpips_delta": 0.0
+        }
+      ]
+    },
+    {
+      "original_image_id": "img0049",
+      "category": "degraded",
+      "rank": 1,
+      "mean_lpips_delta": 0.029446574548880278,
+      "crops": [
+        {
+          "sample_id": "img0049_center30",
+          "x": 95,
+          "y": 26,
+          "width": 64,
+          "height": 64,
+          "m1_k": 8,
+          "lpips_delta": 0.07437296211719513
+        },
+        {
+          "sample_id": "img0049_scratch30",
+          "x": 96,
+          "y": 95,
+          "width": 64,
+          "height": 64,
+          "m1_k": 2,
+          "lpips_delta": 0.013966761529445704
+        },
+        {
+          "sample_id": "img0049_scatter30",
+          "x": 92,
+          "y": 95,
+          "width": 64,
+          "height": 64,
+          "m1_k": 5,
+          "lpips_delta": 0.0
+        }
+      ]
+    },
+    {
+      "original_image_id": "img0041",
+      "category": "degraded",
+      "rank": 2,
+      "mean_lpips_delta": 0.024658566340804104,
+      "crops": [
+        {
+          "sample_id": "img0041_center30",
+          "x": 95,
+          "y": 26,
+          "width": 64,
+          "height": 64,
+          "m1_k": 8,
+          "lpips_delta": 0.04176142811775202
+        },
+        {
+          "sample_id": "img0041_scratch30",
+          "x": 89,
+          "y": 94,
+          "width": 64,
+          "height": 64,
+          "m1_k": 2,
+          "lpips_delta": 0.032214270904660294
+        },
+        {
+          "sample_id": "img0041_scatter30",
+          "x": 93,
+          "y": 96,
+          "width": 64,
+          "height": 64,
+          "m1_k": 5,
+          "lpips_delta": 0.0
+        }
+      ]
+    },
+    {
+      "original_image_id": "img0033",
+      "category": "degraded",
+      "rank": 3,
+      "mean_lpips_delta": 0.01391443113485973,
+      "crops": [
+        {
+          "sample_id": "img0033_center30",
+          "x": 95,
+          "y": 26,
+          "width": 64,
+          "height": 64,
+          "m1_k": 8,
+          "lpips_delta": -0.00880394876003271
+        },
+        {
+          "sample_id": "img0033_scratch30",
+          "x": 103,
+          "y": 92,
+          "width": 64,
+          "height": 64,
+          "m1_k": 2,
+          "lpips_delta": 0.0505472421646119
+        },
+        {
+          "sample_id": "img0033_scatter30",
+          "x": 95,
+          "y": 94,
+          "width": 64,
+          "height": 64,
+          "m1_k": 5,
+          "lpips_delta": 0.0
+        }
+      ]
+    },
+    {
+      "original_image_id": "img0024",
+      "category": "degraded",
+      "rank": 4,
+      "mean_lpips_delta": 0.012529902160167703,
+      "crops": [
+        {
+          "sample_id": "img0024_center30",
+          "x": 95,
+          "y": 26,
+          "width": 64,
+          "height": 64,
+          "m1_k": 8,
+          "lpips_delta": 0.024667769670486506
+        },
+        {
+          "sample_id": "img0024_scratch30",
+          "x": 95,
+          "y": 93,
+          "width": 64,
+          "height": 64,
+          "m1_k": 2,
+          "lpips_delta": 0.012921936810016604
+        },
+        {
+          "sample_id": "img0024_scatter30",
+          "x": 99,
+          "y": 95,
+          "width": 64,
+          "height": 64,
+          "m1_k": 5,
+          "lpips_delta": 0.0
+        }
+      ]
+    },
+    {
+      "original_image_id": "img0032",
+      "category": "degraded",
+      "rank": 5,
+      "mean_lpips_delta": 0.011970301469167069,
+      "crops": [
+        {
+          "sample_id": "img0032_center30",
+          "x": 95,
+          "y": 26,
+          "width": 64,
+          "height": 64,
+          "m1_k": 8,
+          "lpips_delta": -0.010912477970123291
+        },
+        {
+          "sample_id": "img0032_scratch30",
+          "x": 95,
+          "y": 95,
+          "width": 64,
+          "height": 64,
+          "m1_k": 2,
+          "lpips_delta": 0.0468233823776245
+        },
+        {
+          "sample_id": "img0032_scatter30",
+          "x": 95,
+          "y": 104,
+          "width": 64,
+          "height": 64,
+          "m1_k": 5,
+          "lpips_delta": 0.0
+        }
+      ]
+    }
+  ]
+}

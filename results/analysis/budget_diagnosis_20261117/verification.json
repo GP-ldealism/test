@@ -1,0 +1,10 @@
+{
+  "status": "passed",
+  "selected_cases": 10,
+  "comparison_and_boundary_figures": 20,
+  "diagnostic_charts": 1,
+  "tables": 6,
+  "source_fingerprint_unchanged": true,
+  "input_hashes_verified": 110,
+  "no_inference_or_refitting": true
+}

@@ -1,6 +1,6 @@
 # LanPaint 图像修复
 
-基于现有 LanPaint 模型的本地修复原型。基础界面已完成，当前优先完善模型修复效果与预算策略，并推进正式实验。
+基于现有 LanPaint 模型的本地修复原型与推理预算分配研究。基础界面、开发集冻结、正式主测试、面积扩展、三种子复核与失败分析均已完成，结论与交付物见[最终实验报告](docs/最终实验报告.md)。
 
 ## 启动界面
 
@@ -23,15 +23,31 @@ GPU 请求串行排队；第一版尚不支持运行中取消或自适应预算�
 
 ## 当前验证状态
 
-此前全量测试 106 项通过，ruff 静态检查通过。基础界面已通过一次真实 GPU API 修复与下载验证：K=5、NFE=120、采样约 40.05 秒、峰值显存约 2730 MB。基础界面已由用户确认完成，当前重点转回模型完善；2026-11-11 规则冻结流程完成后全量测试为 133 项通过，ruff 检查通过；2026-11-16 完整开发集已完成，冻结与结果核验通过。
+全量离线测试 **133 项通过**（`python -m pytest tests -q`），`ruff` 静态检查通过；离线 CPU 检查入口 `python ci/run_cpu_tests.py` 会屏蔽 CUDA、禁止联网，本机同样 133 项通过。GitHub Actions 的 CPU 工作流见 `.github/workflows/cpu.yml`（不下载模型、不跑扩散推理）。
 
-完整开发集现有 **10 张原图、60 个掩码组合、180 条档位结果，0 失败**，六策略共 360 条记录。M1 在与 B2 相同总 NFE=7200 下，开发集 LPIPS 从 0.088518 降至 0.085453（降低 **3.46%**），但 PSNR 与边界 MAE 略差。规则已冻结；正式测试未复现稳定收益，开发集改善不代表泛化结论。
+基础界面已通过一次真实 GPU API 修复与下载验证：K=5、NFE=120、采样约 40.05 秒、峰值显存约 2730 MB。2026-11-16 完整开发集与正式实验均已完成，冻结、输入哈希与等预算核验通过。
 
-产物：[开发集分析](./results/metrics/dev_budget/seed_42/20261116T084403334123Z_1d7f3deb/development_analysis.md)、[冻结配置](./results/raw/dev_budget/seed_42/20261116T084403334123Z_1d7f3deb/frozen_policy.json)、[质量—成本图](./results/metrics/dev_budget/seed_42/20261116T084403334123Z_1d7f3deb/budget_quality.png)。
+完整开发集现有 **10 张原图、60 个掩码组合、180 条档位结果，0 失败**，六策略共 360 条记录。M1 在与 B2 相同总 NFE=7200 下，开发集 LPIPS 从 0.088518 降至 0.085453（降低 **3.46%**），但 PSNR 与边界 MAE 略差。
 
-正式验证已于 **2026-11-16 23:11（北京时间）** 完成：30 张测试原图、10 张共同扩展子集，主测试加面积扩展和两次新增种子共 **540 次生成、1080 条策略记录，0 失败**，四阶段验收通过。主测试相同 NFE=10800 下，M1 LPIPS 为 0.119657，B2 为 0.117012，M1 均值更差 2.26%，配对差值区间跨零；15% 面积子集有改善，30% 面积三种子合并则退化。详见[正式实验报告](results/metrics/formal_campaign_20261116/formal_campaign_report.md)。当前优先完成案例与失败分析，保留固定 K=5 默认策略；计划见[下一步计划](docs/下一步计划.md)。
+正式验证已于 **2026-11-16 23:11（北京时间）** 完成：30 张测试原图、10 张共同扩展子集，主测试加面积扩展和两次新增种子共 **540 次生成、1080 条策略记录，0 失败**，四阶段验收通过。主测试相同 NFE=10800 下，M1 LPIPS 为 0.119657，B2 为 0.117012，M1 均值更差 2.26%，配对差值区间跨零；15% 面积子集有改善，30% 面积三种子合并则退化。**因此保留固定 K=5 为默认策略，M1 只作为已评测的实验策略归档。**
+
+完整结论、10 组案例（含 5 组退化）、失败原因、局限与 PRD 验收对照见 **[最终实验报告](docs/最终实验报告.md)**，汇报材料见 **[项目汇报 PPT](docs/LanPaint_项目汇报.pptx)**；统计细节见[正式实验报告](results/metrics/formal_campaign_20261116/formal_campaign_report.md)，案例明细见[预算诊断报告](results/analysis/budget_diagnosis_20261117/diagnosis.md)。后续安排见[下一步计划](docs/下一步计划.md)。
+
+## 交付物索引
+
+| 交付物 | 位置 |
+|---|---|
+| 最终实验报告 | [docs/最终实验报告.md](docs/最终实验报告.md) |
+| 汇报 PPT（14 页） | [docs/LanPaint_项目汇报.pptx](docs/LanPaint_项目汇报.pptx) |
+| 六策略统计与配对分析 | [results/metrics/formal_campaign_20261116](results/metrics/formal_campaign_20261116/formal_campaign_report.md) |
+| 10 组案例与预算诊断 | [results/analysis/budget_diagnosis_20261117](results/analysis/budget_diagnosis_20261117/diagnosis.md) |
+| 开发集分析与冻结配置 | [results/metrics/dev_budget](results/metrics/dev_budget/seed_42/20261116T084403334123Z_1d7f3deb/development_analysis.md) |
+| 运行前检查证据 | `results/validation/formal_preflight_20261116/` |
+| 离线 CPU 检查 | `ci/run_cpu_tests.py`、`.github/workflows/cpu.yml` |
 
 ## 批量实验可靠性更新（2026-11-11）
+
+2026-11-17 已补齐[预算诊断与案例报告](results/analysis/budget_diagnosis_20261117/diagnosis.md)：10 组改善/退化案例、边界放大及分组预算收益分析。主测试中心增预算的平均收益不足以抵消划痕降预算损失；部分指标改善仍伴随语义错误。离线复现入口为 `python analysis/diagnose_budget.py`（加 `--cases-per-side 5` 生成 10 组案例），不重新推理或拟合策略。
 
 结果目录改为 `results/raw/<experiment_id>/seed_<seed>/<run_id>/`，指标采用对应的 `results/metrics/` 目录；重跑保留旧日志并复用匹配缓存。运行报告给出实际输出路径。
 
