@@ -1,21 +1,21 @@
 {
-  "runs": 10,
-  "ok_runs": 10,
+  "runs": 1,
+  "ok_runs": 1,
   "nfe_per_run": 120,
-  "nfe_total": 1200,
+  "nfe_total": 120,
   "nan_or_inf": false,
   "blank": false,
-  "peak_vram_mb": 2730.0,
-  "median_seconds": 34.763,
-  "mean_seconds": 35.0208,
-  "estimated_gpu_hours_495": 4.78,
+  "peak_vram_mb": 2729.0,
+  "median_seconds": 93.5811,
+  "mean_seconds": 93.5811,
+  "estimated_gpu_hours_495": 12.867,
   "config": {
     "n_steps": 5,
     "outer_steps": 20,
     "seed": 42,
     "precision": "fp32",
-    "sample": "img0009.png",
-    "mask": "img0009_center30_mask.png"
+    "sample": "img0049.png",
+    "mask": "img0008_center30_mask.png"
   },
-  "notes": "generated_at=2026-11-09 23:51:57"
+  "notes": "generated_at=2026-11-16 23:40:03"
 }
