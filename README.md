@@ -23,7 +23,7 @@ GPU 请求串行排队；第一版尚不支持运行中取消或自适应预算�
 
 ## 当前验证状态
 
-全量离线测试 **133 项通过**（`python -m pytest tests -q`），`ruff` 静态检查通过；离线 CPU 检查入口 `python ci/run_cpu_tests.py` 会屏蔽 CUDA、禁止联网，本机同样 133 项通过。GitHub Actions 的 CPU 工作流见 `.github/workflows/cpu.yml`（不下载模型、不跑扩散推理），已推送验证通过（[run 44033828251](https://github.com/ZDong666/test/actions/runs/44033828251)）。
+全量离线测试 **133 项通过**（`python -m pytest tests -q`），`ruff` 静态检查通过；离线 CPU 检查入口 `python ci/run_cpu_tests.py` 会屏蔽 CUDA、禁止联网，本机同样 133 项通过。GitHub Actions 的 CPU 工作流见 `.github/workflows/cpu.yml`（不下载模型、不跑扩散推理），已推送验证通过（[run 44033828251](https://github.com/ZDong666/test/actions/runs/44033828251)）。2026-11-17 另在仓库外新目录从远端克隆，按 `ci/requirements.txt` 重建环境，跑通全量测试、真实推理、一组实验与 Gradio 验证，见[复现记录](docs/复现记录.md)。
 
 基础界面已通过一次真实 GPU API 修复与下载验证：K=5、NFE=120、采样约 40.05 秒、峰值显存约 2730 MB。2026-11-16 完整开发集与正式实验均已完成，冻结、输入哈希与等预算核验通过。
 
@@ -43,6 +43,7 @@ GPU 请求串行排队；第一版尚不支持运行中取消或自适应预算�
 | 10 组案例与预算诊断 | [results/analysis/budget_diagnosis_20261117](results/analysis/budget_diagnosis_20261117/diagnosis.md) |
 | 开发集分析与冻结配置 | [results/metrics/dev_budget](results/metrics/dev_budget/seed_42/20261116T084403334123Z_1d7f3deb/development_analysis.md) |
 | 运行前检查证据 | `results/validation/formal_preflight_20261116/` |
+| 干净克隆复现记录 | [docs/复现记录.md](docs/复现记录.md) |
 | 离线 CPU 检查 | `ci/run_cpu_tests.py`、`.github/workflows/cpu.yml` |
 
 ## 批量实验可靠性更新（2026-11-11）
