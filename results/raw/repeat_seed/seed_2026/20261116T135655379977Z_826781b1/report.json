@@ -1,0 +1,23 @@
+{
+  "experiment_id": "repeat_seed",
+  "status": "ok",
+  "num_images": 10,
+  "num_samples": 30,
+  "num_tier_runs": 90,
+  "num_cache_hits": 0,
+  "num_failures": 0,
+  "num_records": 180,
+  "comparison_complete": true,
+  "equal_nfe": true,
+  "frozen_policy": "D:\\Study\\Postgraduate\\人工智能项目\\results\\raw\\repeat_seed\\seed_2026\\20261116T135655379977Z_826781b1\\frozen_policy.json",
+  "policy_mean_k": {
+    "A1": 5.0,
+    "B1": 2.0,
+    "B2": 5.0,
+    "B3": 8.0,
+    "C1": 5.0,
+    "M1": 5.0
+  },
+  "output_dir": "D:\\Study\\Postgraduate\\人工智能项目\\results\\raw\\repeat_seed\\seed_2026\\20261116T135655379977Z_826781b1",
+  "metrics_dir": "D:\\Study\\Postgraduate\\人工智能项目\\results\\metrics\\repeat_seed\\seed_2026\\20261116T135655379977Z_826781b1"
+}

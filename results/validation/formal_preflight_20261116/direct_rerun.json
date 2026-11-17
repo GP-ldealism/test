@@ -1,0 +1,71 @@
+{
+  "status": "passed",
+  "cases": [
+    {
+      "sample_id": "img0010_center15",
+      "k": 2,
+      "passed": true,
+      "pixels_equal": true,
+      "direct_sha256": "ec124c7eeab8c816aec735a27a4970aa33270662f663640ad8119075d2eef39b",
+      "cached_sha256": "ec124c7eeab8c816aec735a27a4970aa33270662f663640ad8119075d2eef39b",
+      "nfe": 60,
+      "elapsed_seconds": 19.6584984000001,
+      "metrics": {
+        "masked_psnr": 15.011358641474235,
+        "full_lpips": 0.097689189016819,
+        "boundary_mae_3px": 0.09199573590282213,
+        "status": "ok",
+        "error": null
+      },
+      "metric_absolute_errors": {
+        "full_lpips": 0.0,
+        "masked_psnr": 1.7763568394002505e-15,
+        "boundary_mae_3px": 2.7755575615628914e-17
+      }
+    },
+    {
+      "sample_id": "img0011_scratch30",
+      "k": 5,
+      "passed": true,
+      "pixels_equal": true,
+      "direct_sha256": "fc5374c4ab5b456ea2e15319280262c1f80cf983f453fef9c9d8cbe5a0b88d7d",
+      "cached_sha256": "fc5374c4ab5b456ea2e15319280262c1f80cf983f453fef9c9d8cbe5a0b88d7d",
+      "nfe": 120,
+      "elapsed_seconds": 34.9719053000008,
+      "metrics": {
+        "masked_psnr": 17.236509408148557,
+        "full_lpips": 0.08385077118873596,
+        "boundary_mae_3px": 0.09949220826943472,
+        "status": "ok",
+        "error": null
+      },
+      "metric_absolute_errors": {
+        "full_lpips": 5.551115123125783e-17,
+        "masked_psnr": 0.0,
+        "boundary_mae_3px": 2.7755575615628914e-17
+      }
+    },
+    {
+      "sample_id": "img0012_scatter30",
+      "k": 8,
+      "passed": true,
+      "pixels_equal": true,
+      "direct_sha256": "709211c361b0b83ba8e9bd7218e62fdae9404d9e40863a8f25cc8535a498523b",
+      "cached_sha256": "709211c361b0b83ba8e9bd7218e62fdae9404d9e40863a8f25cc8535a498523b",
+      "nfe": 180,
+      "elapsed_seconds": 50.160808700000416,
+      "metrics": {
+        "masked_psnr": 19.544168817536974,
+        "full_lpips": 0.04619996249675751,
+        "boundary_mae_3px": 0.038546331143798934,
+        "status": "ok",
+        "error": null
+      },
+      "metric_absolute_errors": {
+        "full_lpips": 6.938893903907228e-18,
+        "masked_psnr": 3.552713678800501e-15,
+        "boundary_mae_3px": 3.469446951953614e-17
+      }
+    }
+  ]
+}

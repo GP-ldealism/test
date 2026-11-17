@@ -1,5 +1,6 @@
-# 面积扩展：测试集第 21-25 图 × 3 掩码 × 15% 面积 × 3 档 = 45 次（PRD §7.6）
-# 运行命令见 scripts/run_experiment.py 顶部的 `--split test --image-offset 20 --image-limit 5 --target-area 0.15`。
+# 必须用 --baseline-run 指定已完成的种子 42 主测试输出目录。
+# 面积扩展：主测试内前 5 图 × 3 掩码 × 15% 面积 × 3 档 = 45 次（PRD §7.6）
+# 运行命令见 scripts/run_experiment.py 顶部的 `--split test --image-offset 0 --image-limit 5 --target-area 0.15`。
 experiment_id: area_extension
 method: lanpaint
 policy: M1

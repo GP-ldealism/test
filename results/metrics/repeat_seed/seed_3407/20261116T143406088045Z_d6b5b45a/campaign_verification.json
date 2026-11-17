@@ -1,0 +1,9 @@
+{
+  "status": "passed",
+  "verified_at": "2026-11-16T15:11:12.195033+00:00",
+  "num_images": 10,
+  "num_tiers": 90,
+  "num_policy_records": 180,
+  "nfe_per_equal_budget_policy": 3600,
+  "inputs_match_preregistered_hashes": true
+}

@@ -1,0 +1,19 @@
+{
+  "status": "passed",
+  "tier_results": 180,
+  "policy_records": 360,
+  "cached_images_verified": 114,
+  "source_files_verified": 37,
+  "frozen_policy_sha256": "8d0a53f75728cff8353248dd60f6d5af7633c97f4402bab49e51e0ab071b349d",
+  "development_lpips_B2": 0.0885181621570761,
+  "development_lpips_M1": 0.085452749983718,
+  "relative_lpips_reduction_percent": 3.4630318780438527,
+  "m1_weights": [
+    1.0,
+    -1.0
+  ],
+  "a1_weights": [
+    1.0,
+    0.0
+  ]
+}

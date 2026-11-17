@@ -13,14 +13,14 @@
 
 输出结构（PRD §8.3）::
 
-    results/raw/<experiment_id>/
+    results/raw/<experiment_id>/seed_<seed>/<run_id>/
     ├─ config.yaml
     ├─ manifest.csv
     ├─ samples.csv
     ├─ run_log.jsonl
     ├─ images/
     └─ failures.jsonl
-    results/metrics/<experiment_id>/
+    results/metrics/<experiment_id>/seed_<seed>/<run_id>/
     ├─ per_sample.csv
     ├─ per_image.csv
     └─ summary.csv
@@ -32,13 +32,18 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
+import math
 import shutil
 import traceback
+import zipfile
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 import pandas as pd
 import torch
@@ -53,11 +58,18 @@ from app.budget import (
     make_policies,
     mean_k,
 )
-from app.cache import ResultCache, current_code_commit, make_cache_entry
+from app.cache import ResultCache, make_cache_entry, source_provenance
 from app.config import PRECISION_FP32, PROJECT_ROOT, ExperimentConfig
 from app.data import load_image, load_mask, save_result, sha256_file
 from app.features import MaskFeatures
 from app.metrics import EvalMetrics, evaluate
+from app.policy_freeze import (
+    fit_development_rules,
+    load_frozen_rules,
+    policies_from_frozen,
+    save_frozen_rules,
+    validate_application,
+)
 from app.restore import RestoreConfig, RestoreResult, restore
 
 #: 数据清单字段（PRD §7.2）
@@ -111,7 +123,7 @@ METRIC_FIELDS = (
 
 METRIC_COLUMNS = ("masked_psnr", "full_lpips", "boundary_mae_3px")
 
-#: 三档执行的顺序（始终低 -> 中 -> 高，便于断点续跑时结果可预测）
+#: 三档按样本索引轮换先后，减少温度/功耗顺序偏差。
 TIER_LEVELS = (LEVEL_LOW, LEVEL_MIDDLE, LEVEL_HIGH)
 
 RestoreRunner = Callable[[torch.Tensor, torch.Tensor, RestoreConfig], RestoreResult]
@@ -169,13 +181,15 @@ class ExperimentReport:
     num_failures: int
     num_records: int
     policy_mean_k: dict[str, float] = field(default_factory=dict)
+    comparison_complete: bool = False
+    equal_nfe: bool = False
+    frozen_policy: str | None = None
 
     @property
     def status(self) -> str:
         """``ok``（无失败）/ ``partial``（有失败但仍产出结果图）/ ``failed``（未产出任何结果）。
 
-        判定依据是**是否跑出结果**而非是否写出策略记录：小批量实验可能因
-        ``usable % 3 != 0`` 跳过策略分配，此时仍属正常产出（PRD §9.2）。
+        有失败的运行仅为部分结果，不可作为完整对照。
         """
         if self.num_tier_runs == 0:
             return "failed"
@@ -191,6 +205,9 @@ class ExperimentReport:
             "num_cache_hits": self.num_cache_hits,
             "num_failures": self.num_failures,
             "num_records": self.num_records,
+            "comparison_complete": self.comparison_complete,
+            "equal_nfe": self.equal_nfe,
+            "frozen_policy": self.frozen_policy,
             "policy_mean_k": {name: round(value, 4) for name, value in sorted(self.policy_mean_k.items())},
             "output_dir": str(self.output_dir),
             "metrics_dir": str(self.metrics_dir),
@@ -244,6 +261,13 @@ def load_manifest(path: str | Path, *, project_root: Path = PROJECT_ROOT) -> lis
         rows = [_row_from_mapping(raw, project_root) for raw in reader]
     if not rows:
         raise ValueError(f"清单为空：{manifest_path}")
+    for key in ("original_image_id", "sha256"):
+        seen: dict[str, str] = {}
+        for row in rows:
+            value = getattr(row, key)
+            if value in seen and seen[value] != row.split:
+                raise ValueError(f"清单跨划分图片泄漏：{key}={value}")
+            seen[value] = row.split
     return rows
 
 
@@ -261,6 +285,8 @@ def select_samples(
     ``image_offset`` 与 ``image_limit`` 以**原图**为单位（PRD §7.6 的各子集都按原图计），
     用于从测试集中切出「主测试前 20 张 / 面积扩展 5 张 / 重复实验 5 张」。
     """
+    if image_offset < 0 or (image_limit is not None and image_limit < 1):
+        raise ValueError("原图偏移须非负，数量须为正")
     selected = [row for row in rows if split is None or row.split == split]
     if mask_types:
         wanted = set(mask_types)
@@ -278,6 +304,40 @@ def select_samples(
     return [row for row in selected if row.original_image_id in allowed]
 
 
+def validate_baseline(
+    selected: Sequence[SampleRow], baseline_run: Path, config: ExperimentConfig,
+    *, project_root: Path = PROJECT_ROOT,
+) -> None:
+    """扩展实验必须有完整的同图、同设置种子 42 主测试基准。"""
+    baseline_config = yaml.safe_load((baseline_run / "config.yaml").read_text(encoding="utf-8"))
+    report = json.loads((baseline_run / "report.json").read_text(encoding="utf-8"))
+    if baseline_config["seed"] != 42 or not report.get("comparison_complete"):
+        raise ValueError("需要完整的种子 42 主测试基准")
+    for key in ("budget", "outer_steps", "image_size", "precision", "method"):
+        if baseline_config[key] != config.to_dict()[key]:
+            raise ValueError(f"基准采样配置不一致：{key}")
+    if baseline_config.get("checkpoint_sha256", "").lower() != config.checkpoint_sha256.lower():
+        raise ValueError("基准权重不一致")
+    baseline = load_manifest(baseline_run / "manifest.csv", project_root=project_root)
+    if any(row.split != "test" or abs(row.target_area - 0.30) > 1e-6 for row in baseline):
+        raise ValueError("基准必须是测试集 30% 面积")
+    selection = json.loads((baseline_run / "selection.json").read_text(encoding="utf-8"))
+    expected_ids = set(selection["extension_image_ids"])
+    if {row.original_image_id for row in selected} != expected_ids:
+        raise ValueError("扩展与重复实验必须使用主测试预先固定的同图扩展子集")
+    input_hashes = json.loads((baseline_run / "input_hashes.json").read_text(encoding="utf-8"))
+    by_key = {(row.original_image_id, row.mask_type): row for row in baseline}
+    for row in selected:
+        reference = by_key.get((row.original_image_id, row.mask_type))
+        if row.split != "test" or reference is None or reference.sha256 != row.sha256:
+            raise ValueError(f"样本缺少同图种子 42 基准：{row.sample_id}")
+        if abs(row.target_area - 0.30) < 1e-6 and (
+            row.sample_id != reference.sample_id
+            or sha256_file(row.mask_path) != input_hashes[reference.sample_id]["mask_sha256"]
+        ):
+            raise ValueError(f"重复实验掩码样本不一致：{row.sample_id}")
+
+
 # --------------------------------------------------------------------------- #
 # 缓存键与权重校验
 # --------------------------------------------------------------------------- #
@@ -293,6 +353,31 @@ def sampling_parameters(config: RestoreConfig) -> dict[str, float]:
         "chara_lamb": float(config.chara_lamb),
         "chara_beta": float(config.chara_beta),
     }
+
+
+def sampling_contract(config: ExperimentConfig, checkpoint_sha256: str) -> dict[str, Any]:
+    return {
+        "budget": asdict(config.budget), "outer_steps": config.outer_steps,
+        "image_size": config.image_size, "precision": config.precision,
+        "method": config.method, "checkpoint_sha256": checkpoint_sha256.lower(),
+        "sampling": sampling_parameters(RestoreConfig(outer_steps=config.outer_steps)),
+        "enable_dynamic_stopping": config.enable_dynamic_stopping,
+    }
+
+
+def validate_development_selection(selected: Sequence[SampleRow]) -> None:
+    """正式冻结需要 10 原图 × 三类掩码 × 两种面积，禁止最小试跑误冻结。"""
+    groups: dict[str, list[SampleRow]] = {}
+    for row in selected:
+        if row.split != "dev":
+            raise ValueError("冻结规则只能使用开发集")
+        groups.setdefault(row.original_image_id, []).append(row)
+    expected = {(kind, area) for kind in ("center", "scratch", "scatter") for area in (0.15, 0.30)}
+    if len(groups) != 10 or any(
+        len(group) != 6 or {(row.mask_type, round(row.target_area, 6)) for row in group} != expected
+        for group in groups.values()
+    ):
+        raise ValueError("冻结需要完整开发集：10 原图 × 3 类掩码 × 2 种面积")
 
 
 def resolve_checkpoint_sha256(config: ExperimentConfig) -> str:
@@ -478,6 +563,10 @@ def run_experiment(
     image_offset: int = 0,
     image_limit: int | None = None,
     manifest_path: str | Path | None = None,
+    baseline_run: str | Path | None = None,
+    frozen_policy: str | Path | None = None,
+    freeze_development: bool = False,
+    warmup: bool = False,
     device: str = "cuda",
     policies: Mapping[str, BudgetPolicy] | None = None,
     runner: RestoreRunner = restore,
@@ -491,12 +580,6 @@ def run_experiment(
         raise ValueError(
             f"当前 restore 实现仅支持 {PRECISION_FP32}，收到 precision={config.precision!r}"
         )
-
-    output_dir = config.output_dir / config.experiment_id
-    metrics_dir = project_root / "results" / "metrics" / config.experiment_id
-    images_dir = output_dir / "images"
-    for directory in (output_dir, images_dir, metrics_dir):
-        directory.mkdir(parents=True, exist_ok=True)
 
     rows = load_manifest(manifest_path or config.data_manifest, project_root=project_root)
     selected = select_samples(
@@ -513,16 +596,74 @@ def run_experiment(
             f"筛选后没有样本（split={split!r}）；清单可用划分：{available}"
         )
 
+    if len({row.sample_id for row in selected}) != len(selected):
+        raise ValueError("样本 ID 重复")
+    if config.experiment_id in {"area_extension", "repeat_seed"} and baseline_run is None:
+        raise ValueError("面积/重复实验必须指定种子 42 主测试的 baseline_run")
+    if baseline_run is not None:
+        validate_baseline(selected, Path(baseline_run), config, project_root=project_root)
+
+    if freeze_development:
+        if frozen_policy is not None or policies is not None:
+            raise ValueError("开发集冻结不能同时指定外部策略")
+        validate_development_selection(selected)
+    if any(row.split == "test" for row in selected) and frozen_policy is None:
+        raise ValueError("测试集必须指定 frozen_policy 冻结配置")
+    if len({row.split for row in selected}) != 1:
+        raise ValueError("一次实验只能使用一个划分")
     checkpoint_sha256 = resolve_checkpoint_sha256(config)
-    resolved_commit = code_commit if code_commit is not None else current_code_commit(project_root)
+    provenance = source_provenance(project_root)
+    contract = sampling_contract(config, checkpoint_sha256)
+    frozen = load_frozen_rules(frozen_policy) if frozen_policy else None
+    if frozen is not None:
+        validate_application(
+            frozen, contract=contract, source_sha256=provenance["source_sha256"],
+            image_ids={row.original_image_id for row in selected},
+            image_hashes={row.sha256 for row in selected},
+        )
+        if baseline_run is not None:
+            baseline_frozen = load_frozen_rules(Path(baseline_run) / "frozen_policy.json")
+            if baseline_frozen["sha256"] != frozen["sha256"]:
+                raise ValueError("基准与扩展实验必须使用同一冻结策略")
+    head = code_commit if code_commit is not None else provenance["git_commit"]
+    resolved_commit = f"{head}:source:{provenance['source_sha256']}"
+    run_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ") + "_" + uuid4().hex[:8]
+    relative_run = Path(config.experiment_id) / f"seed_{config.seed}" / run_id
+    output_dir = config.output_dir / relative_run
+    metrics_dir = project_root / "results" / "metrics" / relative_run
+    images_dir = output_dir / "images"
+    images_dir.mkdir(parents=True, exist_ok=False)
+    metrics_dir.mkdir(parents=True, exist_ok=False)
+    (output_dir / "source_provenance.json").write_text(
+        json.dumps(provenance, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    # 保存实际源码快照，未提交的运行也能还原；写入时再核对文件哈希。
+    with zipfile.ZipFile(output_dir / "source_snapshot.zip", "w", zipfile.ZIP_DEFLATED) as archive:
+        for relative, expected_hash in provenance["files"].items():
+            content = (project_root / relative).read_bytes()
+            if hashlib.sha256(content).hexdigest() != expected_hash:
+                raise ValueError("源码在启动时发生变化，请重试")
+            archive.writestr(relative, content)
+    if frozen is not None:
+        save_frozen_rules(output_dir / "frozen_policy.json", frozen)
     cache = ResultCache(config.cache_dir)
     tiers = config.budget.to_tiers()
-    resolved_policies = (
-        dict(policies) if policies is not None else make_policies(tiers=tiers)
-    )
+    if frozen is not None:
+        available_policies = policies_from_frozen(frozen)
+        resolved_policies = {name: available_policies[name] for name in (policies or available_policies)}
+    else:
+        resolved_policies = dict(policies) if policies is not None else make_policies(tiers=tiers)
 
     _dump_config(output_dir / "config.yaml", config, checkpoint_sha256, project_root)
     _write_manifest(output_dir / "manifest.csv", selected, project_root)
+    original_ids = list(dict.fromkeys(row.original_image_id for row in selected))
+    extension_count = 10 if len(original_ids) > 20 else 5
+    (output_dir / "selection.json").write_text(json.dumps({
+        "sample_ids": [row.sample_id for row in selected],
+        "original_image_ids": original_ids,
+        "extension_image_ids": original_ids[:extension_count],
+        "baseline_run": str(Path(baseline_run).resolve()) if baseline_run else None,
+    }, ensure_ascii=False, indent=2), encoding="utf-8")
 
     run_log_path = output_dir / "run_log.jsonl"
     failures_path = output_dir / "failures.jsonl"
@@ -544,6 +685,8 @@ def run_experiment(
             "tiers": {"low": tiers.low, "middle": tiers.middle, "high": tiers.high},
             "code_commit": resolved_commit,
             "checkpoint_sha256": checkpoint_sha256,
+            "policy_state": "frozen" if frozen else "unfrozen",
+            "warmup": warmup,
         },
     )
 
@@ -552,12 +695,25 @@ def run_experiment(
     failed_samples: set[str] = set()
     num_failures = 0
     num_cache_hits = 0
+    input_hashes: dict[str, dict[str, str]] = {}
 
-    for row in selected:
+    if warmup:
+        row = selected[0]
+        warm_result = runner(load_image(row.image_path, config.image_size),
+                             load_mask(row.mask_path, config.image_size),
+                             RestoreConfig(n_steps=tiers.middle, outer_steps=config.outer_steps,
+                                           seed=config.seed, device=device, checkpoint=config.checkpoint))
+        _append_jsonl(run_log_path, {"event": "warmup", "nfe": warm_result.nfe,
+                                   "elapsed_seconds": warm_result.elapsed_seconds})
+        log(f"[warmup] K={tiers.middle}, NFE={warm_result.nfe}")
+    for row_index, row in enumerate(selected):
         try:
+            if sha256_file(row.image_path).lower() != row.sha256.lower():
+                raise ValueError("图片内容与清单 SHA-256 不符，请重新准备清单")
             image = load_image(row.image_path, config.image_size)
             mask = load_mask(row.mask_path, config.image_size)
             mask_sha256 = sha256_file(row.mask_path)
+            input_hashes[row.sample_id] = {"image_sha256": row.sha256, "mask_sha256": mask_sha256}
         except (OSError, ValueError) as exc:
             num_failures += 1
             failed_samples.add(row.sample_id)
@@ -577,7 +733,8 @@ def run_experiment(
             log(f"[fail] {row.sample_id} 读取失败：{exc}")
             continue
 
-        for level in TIER_LEVELS:
+        offset = row_index % len(TIER_LEVELS)
+        for level in TIER_LEVELS[offset:] + TIER_LEVELS[:offset]:
             k = tiers.k(level)
             try:
                 run = _run_tier(
@@ -597,6 +754,8 @@ def run_experiment(
                     runner=runner,
                 )
                 metrics = evaluator(load_image(run.image_path, config.image_size), image, mask)
+                if metrics.status == "ok" and not all(math.isfinite(value) for value in (metrics.full_lpips, metrics.boundary_mae_3px)):
+                    raise ValueError("评价返回非有限 LPIPS 或边界误差")
             except Exception as exc:  # noqa: BLE001 - 单样本失败必须可记录并继续
                 num_failures += 1
                 failed_samples.add(row.sample_id)
@@ -634,6 +793,9 @@ def run_experiment(
                     "cache_hit": run.cache_hit,
                     "blank": run.blank,
                     "status": metrics.status,
+                    "full_lpips": metrics.full_lpips,
+                    "masked_psnr": metrics.masked_psnr,
+                    "boundary_mae_3px": metrics.boundary_mae_3px,
                 },
             )
             if metrics.status != "ok":
@@ -649,13 +811,54 @@ def run_experiment(
                         "error": metrics.error or "评价失败",
                     },
                 )
-        log(f"[ok] {row.sample_id} 三档完成")
+        state = "partial" if row.sample_id in failed_samples else "ok"
+        log(f"[{state}] {row.sample_id} 三档处理结束")
+
+    tier_records = []
+    for row in selected:
+        for level in TIER_LEVELS:
+            k = tiers.k(level)
+            key = (row.sample_id, k)
+            if key not in tier_runs:
+                continue
+            run, metric = tier_runs[key], tier_metrics[key]
+            tier_records.append({
+                "sample_id": row.sample_id, "original_image_id": row.original_image_id,
+                "split": row.split, "mask_type": row.mask_type, "target_area": row.target_area,
+                "actual_area": row.actual_area, "boundary_norm": row.boundary_norm,
+                "image_sha256": row.sha256, "k": k, "status": metric.status,
+                "full_lpips": metric.full_lpips, "masked_psnr": metric.masked_psnr,
+                "boundary_mae_3px": metric.boundary_mae_3px, "nfe": run.nfe,
+                "elapsed_seconds": run.elapsed_seconds, "peak_vram_mb": run.peak_vram_mb,
+                "cache_hit": run.cache_hit,
+            })
+    tier_frame = pd.DataFrame(tier_records)
+    tier_frame.to_csv(output_dir / "tier_results.csv", index=False, encoding="utf-8")
+    if freeze_development and not failed_samples:
+        frozen = fit_development_rules(
+            tier_frame, tiers=tiers, contract=contract, provenance=provenance,
+            manifest_sha256=sha256_file(output_dir / "manifest.csv"), seed=config.seed,
+        )
+        save_frozen_rules(output_dir / "frozen_policy.json", frozen)
+        pd.DataFrame(frozen["candidates"]).to_csv(metrics_dir / "candidate_scores.csv", index=False)
+        resolved_policies = policies_from_frozen(frozen)
+        log(f"[freeze] {output_dir / 'frozen_policy.json'}")
+    if not tier_frame.empty:
+        good = tier_frame.loc[tier_frame["status"] == "ok"]
+        by_image = good.groupby(["original_image_id", "mask_type", "target_area", "k"], as_index=False).agg(
+            **{name: (name, "mean") for name in METRIC_COLUMNS},
+            nfe=("nfe", "mean"), elapsed_seconds=("elapsed_seconds", "mean"),
+        )
+        by_image.groupby(["mask_type", "target_area", "k"], as_index=False).agg(
+            num_images=("original_image_id", "count"),
+            **{f"mean_{name}": (name, "mean") for name in (*METRIC_COLUMNS, "nfe", "elapsed_seconds")},
+        ).to_csv(metrics_dir / "budget_quality.csv", index=False)
 
     usable = [row for row in selected if row.sample_id not in failed_samples]
     records: list[dict[str, Any]] = []
     policy_mean_k: dict[str, float] = {}
 
-    if usable and len(usable) % 3 == 0:
+    if usable:
         sample_ids = [row.sample_id for row in usable]
         features = [row.features for row in usable]
         for name, policy in resolved_policies.items():
@@ -703,10 +906,10 @@ def run_experiment(
             {
                 "event": "policy_skip",
                 "num_usable": len(usable),
-                "reason": f"等预算分档要求可用样本数能被 3 整除，实际 {len(usable)}",
+                "reason": "没有三档均推理和评价成功的样本",
             },
         )
-        log(f"[warn] 跳过策略分配：可用样本 {len(usable)} 个，无法满足等预算分块")
+        log("[warn] 没有可用样本，跳过策略分配")
 
     frame = pd.DataFrame(records, columns=list(SAMPLE_FIELDS))
     frame.to_csv(output_dir / "samples.csv", index=False, encoding="utf-8")
@@ -734,7 +937,20 @@ def run_experiment(
             .sort_values(["policy", "original_image_id"])
         )
         summary = _summarize(records, SAMPLE_FIELDS)
+        # 质量先按原图汇总，再跨图平均，避免掩码数不同导致图片权重不同。
+        image_means = per_image.groupby("policy")[list(METRIC_COLUMNS)].mean()
+        for name in METRIC_COLUMNS:
+            summary[f"mean_{name}"] = summary["policy"].map(image_means[name])
+        summary["num_images"] = summary["policy"].map(per_image.groupby("policy").size())
         summary.insert(0, "experiment_id", config.experiment_id)
+    comparison_complete = not failed_samples and len(usable) == len(selected)
+    totals = {name: sum(r["nfe"] for r in records if r["policy"] == name)
+              for name in resolved_policies}
+    equal_nfe = comparison_complete and all(name in totals for name in ("B2", "M1", "A1", "C1"))
+    equal_nfe = equal_nfe and all(totals[name] == totals["B2"] for name in ("M1", "A1", "C1"))
+    summary["policy_state"] = "frozen" if frozen else "unfrozen"
+    summary["comparison_complete"] = comparison_complete
+    summary["equal_nfe"] = equal_nfe
     per_image.to_csv(metrics_dir / "per_image.csv", index=False, encoding="utf-8")
     summary.to_csv(metrics_dir / "summary.csv", index=False, encoding="utf-8")
 
@@ -749,6 +965,15 @@ def run_experiment(
         num_failures=num_failures,
         num_records=len(records),
         policy_mean_k=policy_mean_k,
+        comparison_complete=comparison_complete,
+        equal_nfe=equal_nfe,
+        frozen_policy=str(output_dir / "frozen_policy.json") if frozen else None,
+    )
+    (output_dir / "input_hashes.json").write_text(
+        json.dumps(input_hashes, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    (output_dir / "report.json").write_text(
+        json.dumps(report.to_dict(), ensure_ascii=False, indent=2), encoding="utf-8"
     )
     _append_jsonl(run_log_path, {"event": "end", **report.to_dict()})
     log(f"[report] {json.dumps(report.to_dict(), ensure_ascii=False)}")

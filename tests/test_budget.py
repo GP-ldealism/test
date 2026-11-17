@@ -110,12 +110,18 @@ def test_ties_are_broken_by_sample_id() -> None:
         assert by_id[f"s{index:02d}"].level == "high"
 
 
-def test_batch_requires_count_divisible_by_three() -> None:
-    policy = BudgetPolicy("M1", "score")
-    with pytest.raises(ValueError, match="能被 3 整除"):
-        allocate_batch([f"s{i}" for i in range(10)], _features(0, 10), policy)
+@pytest.mark.parametrize("count", [1, 2, 4, 5, 10, 11])
+def test_batch_remainders_use_middle_budget(count: int) -> None:
+    ids = [f"s{i:02}" for i in range(count)]
+    for name in ("M1", "A1", "C1"):
+        assignments = allocate_batch(ids, _features(0, count), make_policies()[name])
+        levels = [item.level for item in assignments]
+        assert levels.count("low") == count // 3
+        assert levels.count("high") == count // 3
+        assert levels.count("middle") == count - 2 * (count // 3)
+        assert mean_k(assignments) == 5
     with pytest.raises(ValueError, match="数量不一致"):
-        allocate_batch(["s0", "s1"], _features(0, 3), policy)
+        allocate_batch(["s0", "s1"], _features(0, 3), make_policies()["M1"])
 
 
 def test_c1_is_reproducible_and_preserves_budget_multiset() -> None:
@@ -143,7 +149,7 @@ def test_c1_is_reproducible_and_preserves_budget_multiset() -> None:
 
 
 def test_single_image_threshold_allocation() -> None:
-    policy = BudgetPolicy("M1", "score", weights=(1.0, 0.0), thresholds=(-1.0, 1.0))
+    policy = BudgetPolicy("M1", "score", weights=(1.0, 0.0), thresholds=(0.2, 0.8))
 
     assert allocate_budget(MaskFeatures(area_ratio=-2.0, boundary_norm=0.0), policy) == 2
     assert allocate_budget(MaskFeatures(area_ratio=-1.0, boundary_norm=0.0), policy) == 2
@@ -156,20 +162,20 @@ def test_single_image_threshold_allocation() -> None:
 
 
 def test_policy_score_uses_normalizer() -> None:
-    normalizer = FeatureNormalizer(area_mean=0.3, area_std=0.1, boundary_mean=3.0, boundary_std=1.0)
+    normalizer = FeatureNormalizer(area_min=0.3, area_max=0.5, boundary_min=3.0, boundary_max=5.0)
     policy = BudgetPolicy("M1", "score", weights=(1.0, -1.0), normalizer=normalizer)
 
     score = policy_score(MaskFeatures(area_ratio=0.4, boundary_norm=4.0), policy)
 
-    assert score == pytest.approx(1.0 - 1.0)
+    assert score == pytest.approx(0.5 - 0.5)
 
 
-def test_normalizer_handles_zero_std() -> None:
+def test_normalizer_handles_constant_features() -> None:
     features = [MaskFeatures(area_ratio=0.3, boundary_norm=3.0) for _ in range(4)]
     normalizer = FeatureNormalizer.fit(features)
 
-    assert normalizer.area_std == 1.0
-    assert normalizer.boundary_std == 1.0
+    assert normalizer.area_min == normalizer.area_max == 0.3
+    assert normalizer.boundary_min == normalizer.boundary_max == 3.0
     assert normalizer.transform(features[0]) == (0.0, 0.0)
 
     with pytest.raises(ValueError):
@@ -218,3 +224,20 @@ def test_batch_allocation_is_deterministic() -> None:
     second = allocate_batch(ids, features, policy)
 
     assert first == second
+
+
+def test_minmax_clips_unseen_values_and_preserves_constant_zero() -> None:
+    normalizer = FeatureNormalizer.fit([MaskFeatures(0.1, 4.0), MaskFeatures(0.3, 8.0)])
+    assert normalizer.transform(MaskFeatures(0.2, 6.0)) == pytest.approx((0.5, 0.5))
+    assert normalizer.transform(MaskFeatures(0.0, 99.0)) == (0.0, 1.0)
+    constant = FeatureNormalizer.fit([MaskFeatures(0.3, 4.0)])
+    assert constant.transform(MaskFeatures(0.9, 9.0)) == (0.0, 0.0)
+    with pytest.raises(ValueError, match="有限"):
+        normalizer.transform(MaskFeatures(float("nan"), 1.0))
+
+
+def test_collapsed_threshold_uses_middle_budget_for_ties() -> None:
+    policy = BudgetPolicy("A1", "score", weights=(1.0, 0.0), thresholds=(0.5, 0.5))
+    assert allocate_budget(MaskFeatures(0.5, 0.0), policy) == 5
+    assert allocate_budget(MaskFeatures(0.1, 0.0), policy) == 2
+    assert allocate_budget(MaskFeatures(0.9, 0.0), policy) == 8
