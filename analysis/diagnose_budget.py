@@ -49,6 +49,12 @@ def load_rgb(path):
     return np.asarray(Image.open(path).convert("RGB"))
 
 
+def _shrink_png(path, colors):
+    """把已保存的 PNG 量化到 ``colors`` 色调色板，减小体积（仅供交付归档）。"""
+    frame = Image.open(path).convert("RGB")
+    frame.quantize(colors=colors, method=Image.MEDIANCUT).save(path, optimize=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description="离线预算诊断与案例导出")
     parser.add_argument(
@@ -58,10 +64,28 @@ def main():
         help="改善/退化各取多少个案例（默认 3；最终报告用 5，共 10 组）",
     )
     parser.add_argument("--out", default=None, help="输出目录（默认使用本脚本约定的诊断目录）")
+    parser.add_argument(
+        "--dpi",
+        type=int,
+        default=140,
+        help="导出 PNG 的 DPI（默认 140；仓库瘦身时用 100，可把 20 张案例图从约 13 MB 降到约 7 MB）",
+    )
+    parser.add_argument(
+        "--palette",
+        type=int,
+        default=0,
+        help="把导出的 PNG 量化到 N 色调色板（0 = 关闭；归档时用 256，可再降到约 3 MB）",
+    )
     args = parser.parse_args()
     if args.cases_per_side < 1:
         raise SystemExit("--cases-per-side 必须 >= 1")
+    if args.dpi < 40:
+        raise SystemExit("--dpi 必须 >= 40")
+    if args.palette < 0 or 1 < args.palette < 16 or args.palette > 256:
+        raise SystemExit("--palette 需为 0（关闭）或 16–256 之间的色数")
     per_side = args.cases_per_side
+    dpi = args.dpi
+    palette = args.palette
     out = Path(args.out).resolve() if args.out else OUT
     out.mkdir(parents=True, exist_ok=True)
     campaign = read_json(ROOT / "results/formal_followup_20261116_status.json")
@@ -318,8 +342,11 @@ def main():
             )
             fig.tight_layout(rect=(0, 0, 1, 0.97), h_pad=2.5)
             zoom.tight_layout(rect=(0, 0, 1, 0.97))
-            fig.savefig(out / f"{image_id}_comparison.png", dpi=140)
-            zoom.savefig(out / f"{image_id}_boundary.png", dpi=140)
+            fig.savefig(out / f"{image_id}_comparison.png", dpi=dpi)
+            zoom.savefig(out / f"{image_id}_boundary.png", dpi=dpi)
+            if palette:
+                _shrink_png(out / f"{image_id}_comparison.png", palette)
+                _shrink_png(out / f"{image_id}_boundary.png", palette)
             plt.close(fig)
             plt.close(zoom)
             selected.append(
@@ -364,7 +391,9 @@ def main():
     )
     axes[1].legend()
     fig.tight_layout()
-    fig.savefig(out / "mask_budget_diagnosis.png", dpi=160)
+    fig.savefig(out / "mask_budget_diagnosis.png", dpi=dpi)
+    if palette:
+        _shrink_png(out / "mask_budget_diagnosis.png", palette)
     plt.close(fig)
     (out / "case_selection.json").write_text(
         json.dumps(
