@@ -1,9 +1,11 @@
 # CPU test dependencies; independent of the frozen inference requirements.
 # Install torch/torchvision from the CPU index first (see workflow).
+# matplotlib is imported by scripts/analyze_development.py, which test_experiment imports.
 numpy==2.3.2
 Pillow==11.3.0
 pandas==2.3.3
 scipy==1.18.1
+matplotlib==3.10.5
 PyYAML==6.0.3
 gradio==5.50.0
 lpips==0.1.4
