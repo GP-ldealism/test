@@ -10,7 +10,7 @@ third_party/LanPaintBench/
 cache/
 data/_cache/
 data/samples/original/
-results/raw/*/images/
+results/raw/**/images/
 results/ui/
 
 # Python

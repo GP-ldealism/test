@@ -1,0 +1,38 @@
+{
+  "comparison": "M1 minus B2",
+  "n_original_images": 30,
+  "bootstrap_seed": 42,
+  "bootstrap_resamples": 10000,
+  "metrics": {
+    "full_lpips": {
+      "mean_difference": 0.002645074969364552,
+      "ci95_percentile": [
+        -0.0013355423582510665,
+        0.006592066074825012
+      ],
+      "negative": 12,
+      "zero": 0,
+      "positive": 18
+    },
+    "masked_psnr": {
+      "mean_difference": -0.2666994068902446,
+      "ci95_percentile": [
+        -0.45060054193655935,
+        -0.08932049538847879
+      ],
+      "negative": 20,
+      "zero": 0,
+      "positive": 10
+    },
+    "boundary_mae_3px": {
+      "mean_difference": -0.0003190342141954404,
+      "ci95_percentile": [
+        -0.002321558626947961,
+        0.001527040178460337
+      ],
+      "negative": 16,
+      "zero": 0,
+      "positive": 14
+    }
+  }
+}

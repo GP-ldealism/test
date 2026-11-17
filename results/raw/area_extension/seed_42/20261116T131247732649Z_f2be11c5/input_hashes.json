@@ -1,0 +1,122 @@
+{
+  "img0020_center15": {
+    "image_sha256": "b1e299b2019305f8a9c6ff49f37e9af341b9b92f9634dcfe761ebd357de7a340",
+    "mask_sha256": "9baa786683d81b2e97d36e0a7a3894caa75bd6473cdd2f1dc3218fbc1c6383b7"
+  },
+  "img0020_scratch15": {
+    "image_sha256": "b1e299b2019305f8a9c6ff49f37e9af341b9b92f9634dcfe761ebd357de7a340",
+    "mask_sha256": "effd2f55f7a403176561d6b1de6364158e4b5cc38eb54ab43f0a054df31313c5"
+  },
+  "img0020_scatter15": {
+    "image_sha256": "b1e299b2019305f8a9c6ff49f37e9af341b9b92f9634dcfe761ebd357de7a340",
+    "mask_sha256": "d0c8ed5f66a9b4127a7da89eb8e7c3c65f087f0007f0b0f92fe0212e35e23771"
+  },
+  "img0021_center15": {
+    "image_sha256": "eeed7f7731a3b5bdbec258809b8b2e1ef94b79fbe3864e9ef1e1d8fa2954ed7a",
+    "mask_sha256": "9baa786683d81b2e97d36e0a7a3894caa75bd6473cdd2f1dc3218fbc1c6383b7"
+  },
+  "img0021_scratch15": {
+    "image_sha256": "eeed7f7731a3b5bdbec258809b8b2e1ef94b79fbe3864e9ef1e1d8fa2954ed7a",
+    "mask_sha256": "c2eb518cfe4f961ebd134e37a7281e9693a772553361b320a83c0d4edc39c0eb"
+  },
+  "img0021_scatter15": {
+    "image_sha256": "eeed7f7731a3b5bdbec258809b8b2e1ef94b79fbe3864e9ef1e1d8fa2954ed7a",
+    "mask_sha256": "c44b5dd2eb080f26f733702bd3abae1d019aa2b8906498c66dd6a85362974738"
+  },
+  "img0022_center15": {
+    "image_sha256": "ef9e33d6172c4ad9385b42ad69c0e0a05729d2cf7bdd7d57b17b7802bf4eda6d",
+    "mask_sha256": "9baa786683d81b2e97d36e0a7a3894caa75bd6473cdd2f1dc3218fbc1c6383b7"
+  },
+  "img0022_scratch15": {
+    "image_sha256": "ef9e33d6172c4ad9385b42ad69c0e0a05729d2cf7bdd7d57b17b7802bf4eda6d",
+    "mask_sha256": "dbd56122f91041788e99822489315a867fec3507da9aefdacdfbb6873d52ee58"
+  },
+  "img0022_scatter15": {
+    "image_sha256": "ef9e33d6172c4ad9385b42ad69c0e0a05729d2cf7bdd7d57b17b7802bf4eda6d",
+    "mask_sha256": "f00dfad617c54b97e94f2903c08159428230425e330915c4ae3682f9867fa128"
+  },
+  "img0023_center15": {
+    "image_sha256": "ed5b9d5f9bfbd3127b514f90a0cce3d74f553119232bf5e10740485756ac43f3",
+    "mask_sha256": "9baa786683d81b2e97d36e0a7a3894caa75bd6473cdd2f1dc3218fbc1c6383b7"
+  },
+  "img0023_scratch15": {
+    "image_sha256": "ed5b9d5f9bfbd3127b514f90a0cce3d74f553119232bf5e10740485756ac43f3",
+    "mask_sha256": "f0e209643031c13f6283de70bca5205927b874eaca96fe70c2d7e647f8e6a80e"
+  },
+  "img0023_scatter15": {
+    "image_sha256": "ed5b9d5f9bfbd3127b514f90a0cce3d74f553119232bf5e10740485756ac43f3",
+    "mask_sha256": "30d7656142ba8dc584ee1a1e12b6a7fbd10ebca845442d2ff3fafedf0519b4bb"
+  },
+  "img0024_center15": {
+    "image_sha256": "5636fe52edc8b7c7aa3f011c6cf54129ca1f5e4594998ecb368df3496dc84047",
+    "mask_sha256": "9baa786683d81b2e97d36e0a7a3894caa75bd6473cdd2f1dc3218fbc1c6383b7"
+  },
+  "img0024_scratch15": {
+    "image_sha256": "5636fe52edc8b7c7aa3f011c6cf54129ca1f5e4594998ecb368df3496dc84047",
+    "mask_sha256": "91bcb7a53a2b084cef72dfdc1c79edcb007a7ff5a6f40298229ab36a4b8e9ea3"
+  },
+  "img0024_scatter15": {
+    "image_sha256": "5636fe52edc8b7c7aa3f011c6cf54129ca1f5e4594998ecb368df3496dc84047",
+    "mask_sha256": "8295354d92292d4969cdbb883789242e7e39e718b42d6ebda3a3d3b848b155d5"
+  },
+  "img0025_center15": {
+    "image_sha256": "c14f9f23ef3702f367433a980f1d36f15feb508b796a0405da615d1a325d8b1d",
+    "mask_sha256": "9baa786683d81b2e97d36e0a7a3894caa75bd6473cdd2f1dc3218fbc1c6383b7"
+  },
+  "img0025_scratch15": {
+    "image_sha256": "c14f9f23ef3702f367433a980f1d36f15feb508b796a0405da615d1a325d8b1d",
+    "mask_sha256": "686da5ba461876489c25bae1b242c468df77a3e1e86a31c80d77f5185aaba585"
+  },
+  "img0025_scatter15": {
+    "image_sha256": "c14f9f23ef3702f367433a980f1d36f15feb508b796a0405da615d1a325d8b1d",
+    "mask_sha256": "cfe7355c4289ec593bea5cae97ea7743dc853685093b0f2f85d81ff07539a114"
+  },
+  "img0026_center15": {
+    "image_sha256": "efd66421f7f88a8e6d86864f611f9f3380e2bb8aa9efba8b51b8ecc51f52bb68",
+    "mask_sha256": "9baa786683d81b2e97d36e0a7a3894caa75bd6473cdd2f1dc3218fbc1c6383b7"
+  },
+  "img0026_scratch15": {
+    "image_sha256": "efd66421f7f88a8e6d86864f611f9f3380e2bb8aa9efba8b51b8ecc51f52bb68",
+    "mask_sha256": "a3ad7717af30c304f9ec3d863e71d8452d9dd2c13f00afd3f05eda3d43a56c43"
+  },
+  "img0026_scatter15": {
+    "image_sha256": "efd66421f7f88a8e6d86864f611f9f3380e2bb8aa9efba8b51b8ecc51f52bb68",
+    "mask_sha256": "f47ea71c915724fe6f66a7cda584a56df3cfdf47a9502ed1f1345ac26ad3a5bb"
+  },
+  "img0027_center15": {
+    "image_sha256": "1038d9adb4ba59afef78c0391b47bccace2ff44c42fafccadade2c7cde9e8ac8",
+    "mask_sha256": "9baa786683d81b2e97d36e0a7a3894caa75bd6473cdd2f1dc3218fbc1c6383b7"
+  },
+  "img0027_scratch15": {
+    "image_sha256": "1038d9adb4ba59afef78c0391b47bccace2ff44c42fafccadade2c7cde9e8ac8",
+    "mask_sha256": "1c3fc3c2652a8bfaa0bbd26721b98167ea77b201feb3b852bbee88dd46625562"
+  },
+  "img0027_scatter15": {
+    "image_sha256": "1038d9adb4ba59afef78c0391b47bccace2ff44c42fafccadade2c7cde9e8ac8",
+    "mask_sha256": "3e5fe17a808332353ed6355f046205cbeb2e9da57b691a1b627dcb0a099b9853"
+  },
+  "img0028_center15": {
+    "image_sha256": "9cffa34c660e5b824a915b509ce0da124746b2db0b3c8749d547b309d46a4331",
+    "mask_sha256": "9baa786683d81b2e97d36e0a7a3894caa75bd6473cdd2f1dc3218fbc1c6383b7"
+  },
+  "img0028_scratch15": {
+    "image_sha256": "9cffa34c660e5b824a915b509ce0da124746b2db0b3c8749d547b309d46a4331",
+    "mask_sha256": "682d39d11042b0aad5bb70b74eeeb3b41ea48b6c8b4642f8f207c36a3902968c"
+  },
+  "img0028_scatter15": {
+    "image_sha256": "9cffa34c660e5b824a915b509ce0da124746b2db0b3c8749d547b309d46a4331",
+    "mask_sha256": "ce91e56cac61adb8cb974966dd54b64fc2339023c32c40f4bfdab84228437b3d"
+  },
+  "img0029_center15": {
+    "image_sha256": "9937b2f02cf3972c3f593e2dff9e34538a219a1645685cc1981751ab432a8197",
+    "mask_sha256": "9baa786683d81b2e97d36e0a7a3894caa75bd6473cdd2f1dc3218fbc1c6383b7"
+  },
+  "img0029_scratch15": {
+    "image_sha256": "9937b2f02cf3972c3f593e2dff9e34538a219a1645685cc1981751ab432a8197",
+    "mask_sha256": "d6205de4cbbf86aff8d79fbcf8224135f31b8abf0b2f2f247895c6266377c830"
+  },
+  "img0029_scatter15": {
+    "image_sha256": "9937b2f02cf3972c3f593e2dff9e34538a219a1645685cc1981751ab432a8197",
+    "mask_sha256": "3a14e6a241cb600fe35d07b2f559f55d0edefb3ebbb464e5e711d1d98fadf072"
+  }
+}

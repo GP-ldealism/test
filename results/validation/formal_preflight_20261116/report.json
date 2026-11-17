@@ -1,0 +1,9 @@
+{
+  "status": "passed",
+  "checked_samples": 120,
+  "num_main_images": 30,
+  "num_extension_images": 10,
+  "direct_reruns": 3,
+  "selection_lock_sha256": "825b5c74bff0e23bb72e03189a9c87ec9fb4020bb9e14af38d1ed05815cc4f66",
+  "finished_at": "2026-11-16T10:38:54.103590+00:00"
+}

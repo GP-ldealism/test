@@ -1,0 +1,9 @@
+{
+  "status": "passed",
+  "num_tiers": 270,
+  "num_policy_records": 540,
+  "nfe_per_equal_budget_policy": 10800,
+  "selection_matches_preflight": true,
+  "source_sha256": "a5921acb82c6c747a9d8b5e424734a2f56e5439872ce09bf3a2b7791fe8ffbdc",
+  "frozen_policy_sha256": "8d0a53f75728cff8353248dd60f6d5af7633c97f4402bab49e51e0ab071b349d"
+}

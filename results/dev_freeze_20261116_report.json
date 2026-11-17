@@ -1,0 +1,23 @@
+{
+  "experiment_id": "dev_budget",
+  "status": "ok",
+  "num_images": 10,
+  "num_samples": 60,
+  "num_tier_runs": 180,
+  "num_cache_hits": 114,
+  "num_failures": 0,
+  "num_records": 360,
+  "comparison_complete": true,
+  "equal_nfe": true,
+  "frozen_policy": "D:\\Study\\Postgraduate\\人工智能项目\\results\\raw\\dev_budget\\seed_42\\20261116T084403334123Z_1d7f3deb\\frozen_policy.json",
+  "policy_mean_k": {
+    "A1": 5.0,
+    "B1": 2.0,
+    "B2": 5.0,
+    "B3": 8.0,
+    "C1": 5.0,
+    "M1": 5.0
+  },
+  "output_dir": "D:\\Study\\Postgraduate\\人工智能项目\\results\\raw\\dev_budget\\seed_42\\20261116T084403334123Z_1d7f3deb",
+  "metrics_dir": "D:\\Study\\Postgraduate\\人工智能项目\\results\\metrics\\dev_budget\\seed_42\\20261116T084403334123Z_1d7f3deb"
+}

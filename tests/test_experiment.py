@@ -13,11 +13,13 @@ from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytest
 import torch
 from PIL import Image
 
 from app.budget import BudgetTiers
+from app.cache import source_provenance
 from app.config import ExperimentConfig
 from app.data import sha256_file
 from app.experiment import (
@@ -26,9 +28,11 @@ from app.experiment import (
     SampleRow,
     load_manifest,
     run_experiment,
+    sampling_contract,
     select_samples,
 )
 from app.metrics import EvalMetrics
+from app.policy_freeze import fit_development_rules, save_frozen_rules
 from app.restore import RestoreResult
 
 TIERS = BudgetTiers()  # 2 / 5 / 8
@@ -161,6 +165,23 @@ def _config(root: Path, *, experiment_id: str = "exp_unit", precision: str = "fp
 
 
 def _run(root: Path, config: ExperimentConfig, runner: _FakeRunner, **kwargs):
+    rows = load_manifest(config.data_manifest, project_root=root)
+    if any(row.split == "test" for row in rows) and kwargs.get("split") != "dev":
+        path = root / "unit_frozen.json"
+        if not path.exists():
+            frame = pd.DataFrame([
+                {"sample_id": f"dev{i}", "original_image_id": f"dev{i}", "split": "dev",
+                 "actual_area": 0.1 + i * 0.1, "boundary_norm": 2.0 + i,
+                 "image_sha256": f"synthetic-dev-hash-{i}", "k": k,
+                 "full_lpips": 1 / k, "status": "ok"}
+                for i in range(3) for k in (2, 5, 8)
+            ])
+            frozen = fit_development_rules(
+                frame, tiers=TIERS, contract=sampling_contract(config, ""),
+                provenance=source_provenance(root), manifest_sha256="test", seed=42,
+            )
+            save_frozen_rules(path, frozen)
+        kwargs.setdefault("frozen_policy", path)
     return run_experiment(
         config,
         project_root=root,
@@ -170,6 +191,10 @@ def _run(root: Path, config: ExperimentConfig, runner: _FakeRunner, **kwargs):
         log=_silent,
         **kwargs,
     )
+
+
+def _latest_run(root: Path, config: ExperimentConfig, kind: str) -> Path:
+    return max((root / "results" / kind / config.experiment_id / f"seed_{config.seed}").iterdir())
 
 
 def _read_csv(path: Path) -> list[dict[str, str]]:
@@ -248,12 +273,12 @@ def test_run_experiment_writes_prd_output_structure(tmp_path: Path) -> None:
     assert report.num_cache_hits == 0
     assert len(runner.calls) == 9
 
-    output_dir = tmp_path / "results" / "raw" / config.experiment_id
+    output_dir = _latest_run(tmp_path, config, "raw")
     for name in ("config.yaml", "manifest.csv", "samples.csv", "run_log.jsonl", "failures.jsonl"):
         assert (output_dir / name).is_file(), name
     assert len(list((output_dir / "images").glob("*.png"))) == 9
 
-    metrics_dir = tmp_path / "results" / "metrics" / config.experiment_id
+    metrics_dir = _latest_run(tmp_path, config, "metrics")
     for name in ("per_sample.csv", "per_image.csv", "summary.csv"):
         assert (metrics_dir / name).is_file(), name
 
@@ -279,7 +304,7 @@ def test_equal_budget_policies_keep_middle_mean_k(tmp_path: Path) -> None:
     for policy in ("M1", "A1", "C1"):
         assert report.policy_mean_k[policy] == pytest.approx(TIERS.middle)
 
-    summary = _read_csv(tmp_path / "results" / "metrics" / config.experiment_id / "summary.csv")
+    summary = _read_csv(_latest_run(tmp_path, config, "metrics") / "summary.csv")
     assert {row["policy"] for row in summary} == set(POLICIES)
     assert all(int(row["num_samples"]) == 3 for row in summary)
     assert all(float(row["mean_k"]) in {2.0, 5.0, 8.0} for row in summary)
@@ -291,7 +316,7 @@ def test_adaptive_policies_use_all_three_tiers(tmp_path: Path) -> None:
     config = _config(tmp_path)
     _run(tmp_path, config, _FakeRunner())
 
-    samples = _read_csv(tmp_path / "results" / "raw" / config.experiment_id / "samples.csv")
+    samples = _read_csv(_latest_run(tmp_path, config, "raw") / "samples.csv")
     expected = sorted([TIERS.low, TIERS.middle, TIERS.high])
     for policy in ("M1", "A1", "C1"):
         levels = sorted(int(row["k"]) for row in samples if row["policy"] == policy)
@@ -305,7 +330,7 @@ def test_all_policies_reuse_the_same_tier_outputs(tmp_path: Path) -> None:
     report = _run(tmp_path, config, _FakeRunner())
 
     assert report.num_tier_runs == 3 * 3  # 3 个样本 × 3 档，而不随策略数放大
-    samples = _read_csv(tmp_path / "results" / "raw" / config.experiment_id / "samples.csv")
+    samples = _read_csv(_latest_run(tmp_path, config, "raw") / "samples.csv")
     referenced = {row["image"] for row in samples}
     assert len(referenced) == report.num_tier_runs
 
@@ -316,7 +341,7 @@ def test_cache_hit_reuses_previous_results(tmp_path: Path) -> None:
 
     first_runner = _FakeRunner()
     _run(tmp_path, config, first_runner)
-    metrics_path = tmp_path / "results" / "metrics" / config.experiment_id / "per_sample.csv"
+    metrics_path = _latest_run(tmp_path, config, "metrics") / "per_sample.csv"
     snapshot = metrics_path.read_text(encoding="utf-8")
 
     second_runner = _FakeRunner()
@@ -327,7 +352,7 @@ def test_cache_hit_reuses_previous_results(tmp_path: Path) -> None:
     assert report.num_cache_hits == 9
     assert report.num_failures == 0
     # 缓存结果与直接运行一致（PRD §12.2）
-    assert metrics_path.read_text(encoding="utf-8") == snapshot
+    assert (_latest_run(tmp_path, config, "metrics") / "per_sample.csv").read_text(encoding="utf-8") == snapshot
 
 
 def test_changed_seed_invalidates_cache(tmp_path: Path) -> None:
@@ -352,7 +377,7 @@ def test_failed_sample_is_recorded_and_run_continues(tmp_path: Path) -> None:
     assert report.num_failures == 3
     assert len(runner.calls) == 9  # 失败不阻断后续样本
 
-    output_dir = tmp_path / "results" / "raw" / config.experiment_id
+    output_dir = _latest_run(tmp_path, config, "raw")
     failures = _read_jsonl(output_dir / "failures.jsonl")
     assert {item["sample_id"] for item in failures} == {"img0000_scratch30"}
     assert all(item["stage"] == "tier" for item in failures)
@@ -361,9 +386,13 @@ def test_failed_sample_is_recorded_and_run_continues(tmp_path: Path) -> None:
     assert len(images) == 6  # 其余两个样本各 3 档
     assert not any(name.startswith("img0000_scratch30") for name in images)
 
-    # 可用样本 2 个，无法满足等预算分块 -> 只记录跳过原因，不写策略记录
-    assert _read_csv(output_dir / "samples.csv") == []
-    assert any(item["event"] == "policy_skip" for item in _read_jsonl(output_dir / "run_log.jsonl"))
+    # 可用的 2 个样本继续生成六策略记录，但不标为完整对照。
+    assert len(_read_csv(output_dir / "samples.csv")) == 12
+    assert not report.comparison_complete
+    assert not report.equal_nfe
+    assert report.policy_mean_k["M1"] == 5
+    summary = _read_csv(report.metrics_dir / "summary.csv")
+    assert all(item["comparison_complete"] == "False" for item in summary)
 
 
 def test_precision_other_than_fp32_rejected(tmp_path: Path) -> None:
@@ -376,3 +405,140 @@ def test_no_selected_samples_raises(tmp_path: Path) -> None:
     _build_dataset(tmp_path)
     with pytest.raises(ValueError, match="没有样本"):
         _run(tmp_path, _config(tmp_path), _FakeRunner(), split="test")
+
+
+def test_seed_and_retry_directories_preserve_previous_outputs(tmp_path: Path) -> None:
+    _build_dataset(tmp_path)
+    config = _config(tmp_path)
+    first = _run(tmp_path, config, _FakeRunner())
+    snapshot = (first.output_dir / "config.yaml").read_bytes()
+    log_snapshot = (first.output_dir / "run_log.jsonl").read_bytes()
+    other = _run(tmp_path, replace(config, seed=3407), _FakeRunner())
+    retry = _run(tmp_path, config, _FakeRunner())
+    assert len({first.output_dir, other.output_dir, retry.output_dir}) == 3
+    assert "seed_3407" in other.output_dir.parts
+    assert (first.output_dir / "config.yaml").read_bytes() == snapshot
+    assert (first.output_dir / "run_log.jsonl").read_bytes() == log_snapshot
+    assert retry.num_cache_hits == 9
+    assert retry.equal_nfe and retry.comparison_complete
+
+
+def test_uncommitted_source_changes_invalidate_cache(tmp_path: Path) -> None:
+    _build_dataset(tmp_path)
+    (tmp_path / "app").mkdir()
+    source = tmp_path / "app" / "restore.py"
+    source.write_text("# original", encoding="utf-8")
+    config = _config(tmp_path)
+    first = _run(tmp_path, config, _FakeRunner())
+    source.write_text("# changed without commit", encoding="utf-8")
+    second = _run(tmp_path, config, _FakeRunner())
+    assert second.num_cache_hits == 0
+    assert (first.output_dir / "source_provenance.json").read_bytes() != (
+        second.output_dir / "source_provenance.json").read_bytes()
+
+
+def test_extensions_require_existing_complete_seed42_baseline(tmp_path: Path) -> None:
+    _build_dataset(tmp_path, image_ids=("img0", "img1"), splits=("test", "test"), areas=(0.15, 0.30))
+    main = _run(tmp_path, _config(tmp_path), _FakeRunner(), split="test", target_areas=[0.30], image_limit=1)
+    config = _config(tmp_path, experiment_id="area_extension")
+    with pytest.raises(ValueError, match="baseline_run"):
+        _run(tmp_path, config, _FakeRunner(), split="test", target_areas=[0.15])
+    with pytest.raises(ValueError, match="同图"):
+        _run(tmp_path, config, _FakeRunner(), split="test", target_areas=[0.15], baseline_run=main.output_dir)
+    area = _run(tmp_path, config, _FakeRunner(), split="test", target_areas=[0.15], image_limit=1,
+                baseline_run=main.output_dir)
+    assert area.status == "ok"
+    repeat = _run(tmp_path, replace(config, experiment_id="repeat_seed", seed=2026), _FakeRunner(),
+                  split="test", target_areas=[0.30], image_limit=1, baseline_run=main.output_dir)
+    assert repeat.status == "ok"
+    bad = _run(tmp_path, replace(_config(tmp_path), seed=7), _FakeRunner(),
+               split="test", target_areas=[0.30], image_limit=1)
+    with pytest.raises(ValueError, match="种子 42"):
+        _run(tmp_path, config, _FakeRunner(), baseline_run=bad.output_dir)
+
+
+def test_stale_image_hash_is_a_failure(tmp_path: Path) -> None:
+    _build_dataset(tmp_path)
+    _write_image(tmp_path / "data" / "samples" / "original" / "img0000.png", 99)
+    runner = _FakeRunner()
+    report = _run(tmp_path, _config(tmp_path), runner)
+    assert report.status == "failed"
+    assert not report.comparison_complete
+    assert not runner.calls
+
+
+def test_repeat_rejects_changed_mask_and_partial_baseline(tmp_path: Path) -> None:
+    _build_dataset(tmp_path, splits=("test",), areas=(0.15, 0.30))
+    main_config = _config(tmp_path)
+    main = _run(tmp_path, main_config, _FakeRunner(), split="test", target_areas=[0.30])
+    mask_path = tmp_path / "data" / "masks" / "img0000_center30_mask.png"
+    _write_mask(mask_path, "changed-mask")
+    repeat = replace(main_config, experiment_id="repeat_seed", seed=2026)
+    with pytest.raises(ValueError, match="掩码"):
+        _run(tmp_path, repeat, _FakeRunner(), split="test", target_areas=[0.30], baseline_run=main.output_dir)
+    # 使用独立缓存，避免已有成功输出掩盖模拟失败。
+    partial_config = replace(main_config, cache_dir=tmp_path / "fresh_cache")
+    partial = _run(tmp_path, partial_config, _FakeRunner(fail_calls={0}), split="test", target_areas=[0.30])
+    with pytest.raises(ValueError, match="完整"):
+        _run(tmp_path, repeat, _FakeRunner(), split="test", target_areas=[0.30], baseline_run=partial.output_dir)
+
+
+def test_nfe_mismatch_is_not_reported_as_equal_budget(tmp_path: Path) -> None:
+    _build_dataset(tmp_path)
+    base_runner = _FakeRunner()
+
+    def nonlinear_runner(image, mask, config):
+        return replace(base_runner(image, mask, config), nfe=config.n_steps ** 2)
+
+    report = _run(tmp_path, _config(tmp_path), nonlinear_runner)
+    assert report.comparison_complete
+    assert not report.equal_nfe
+    assert all(row["equal_nfe"] == "False" for row in _read_csv(report.metrics_dir / "summary.csv"))
+
+
+def test_test_split_requires_frozen_policy_before_inference(tmp_path: Path) -> None:
+    _build_dataset(tmp_path, splits=("test",))
+    runner = _FakeRunner()
+    with pytest.raises(ValueError, match="frozen_policy"):
+        run_experiment(_config(tmp_path), project_root=tmp_path, runner=runner,
+                       evaluator=_fake_evaluator, log=_silent, split="test")
+    assert not runner.calls
+
+
+def test_full_development_freezes_and_test_loads_same_rules(tmp_path: Path) -> None:
+    _build_dataset(tmp_path, image_ids=tuple(f"dev{i}" for i in range(10)), areas=(0.15, 0.30))
+    config = replace(_config(tmp_path), image_size=8)
+    report = _run(tmp_path, config, _FakeRunner(), split="dev", freeze_development=True)
+    assert report.comparison_complete
+    assert report.frozen_policy is not None
+    payload = json.loads(Path(report.frozen_policy).read_text(encoding="utf-8"))
+    assert payload["development"]["num_samples"] == 60
+    assert len(_read_csv(report.output_dir / "tier_results.csv")) == 180
+    assert len(_read_csv(report.metrics_dir / "candidate_scores.csv")) == 6
+    assert all(row["policy_state"] == "frozen" for row in _read_csv(report.metrics_dir / "summary.csv"))
+    assert (report.output_dir / "source_snapshot.zip").is_file()
+    from scripts.analyze_development import analyze
+    analysis = analyze(report.output_dir)
+    assert analysis.is_file()
+    assert (report.metrics_dir / "budget_quality.png").stat().st_size > 1000
+
+
+def test_small_development_cannot_freeze(tmp_path: Path) -> None:
+    _build_dataset(tmp_path)
+    runner = _FakeRunner()
+    with pytest.raises(ValueError, match="完整开发集"):
+        _run(tmp_path, _config(tmp_path), runner, freeze_development=True)
+    assert not runner.calls
+
+
+def test_manifest_rejects_original_image_across_splits(tmp_path: Path) -> None:
+    _build_dataset(tmp_path)
+    path = tmp_path / "data" / "manifest.csv"
+    rows = _read_csv(path)
+    rows[0]["split"] = "test"
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=MANIFEST_FIELDS)
+        writer.writeheader()
+        writer.writerows(rows)
+    with pytest.raises(ValueError, match="泄漏"):
+        load_manifest(path, project_root=tmp_path)

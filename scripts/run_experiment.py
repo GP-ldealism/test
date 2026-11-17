@@ -5,14 +5,16 @@ r"""批量等预算实验入口（S5 / FR-09）。
 ```powershell
 $py = 'D:\Study\Postgraduate\GPT\envs\lanpaint\Scripts\python.exe'
 # 开发集：10 图 × 3 掩码 × 2 面积 × 3 档 = 180 次
-& $py scripts\run_experiment.py --config configs\dev.yaml --split dev
+& $py scripts\run_experiment.py --config configs\dev.yaml --split dev --freeze-development --warmup
+# $frozen 指向开发集报告中的 frozen_policy.json；正式实验只加载冻结配置。
 # 主测试：测试集前 20 图 × 3 掩码 × 30% 面积 × 3 档 = 180 次
-& $py scripts\run_experiment.py --config configs\main.yaml --split test --image-limit 20 --target-area 0.30
-# 面积扩展：测试集第 21-25 图 × 3 掩码 × 15% 面积 × 3 档 = 45 次
-& $py scripts\run_experiment.py --config configs\area.yaml --split test --image-offset 20 --image-limit 5 --target-area 0.15
-# 重复实验：测试集第 26-30 图 × 3 掩码 × 30% 面积 × 3 档 × 2 个新种子 = 90 次
-& $py scripts\run_experiment.py --config configs\repeat.yaml --split test --image-offset 25 --image-limit 5 --target-area 0.30 --seed 2026
-& $py scripts\run_experiment.py --config configs\repeat.yaml --split test --image-offset 25 --image-limit 5 --target-area 0.30 --seed 3407
+& $py scripts\run_experiment.py --config configs\main.yaml --split test --image-limit 20 --target-area 0.30 --frozen-policy $frozen
+# $baseline 指向已完成主测试报告中的 output_dir（含 config.yaml、manifest.csv、report.json）
+# 面积扩展：主测试内前 5 图 × 3 掩码 × 15% 面积 × 3 档 = 45 次
+& $py scripts\run_experiment.py --config configs\area.yaml --split test --image-offset 0 --image-limit 5 --target-area 0.15 --baseline-run $baseline --frozen-policy $frozen
+# 重复实验：同一主测试内前 5 图 × 3 掩码 × 30% 面积 × 3 档 × 2 个新种子 = 90 次
+& $py scripts\run_experiment.py --config configs\repeat.yaml --split test --image-offset 0 --image-limit 5 --target-area 0.30 --seed 2026 --baseline-run $baseline --frozen-policy $frozen
+& $py scripts\run_experiment.py --config configs\repeat.yaml --split test --image-offset 0 --image-limit 5 --target-area 0.30 --seed 3407 --baseline-run $baseline --frozen-policy $frozen
 ```
 
 中断后重跑同一命令即可：已完成的「图片 + 掩码 + 种子 + 档位」从结果缓存直接复用（FR-09）。
@@ -64,6 +66,10 @@ def main() -> int:
     parser.add_argument("--seed", type=int, default=None, help="覆盖配置中的随机种子（重复实验用）。")
     parser.add_argument("--policies", default=None, help="逗号分隔的策略名，默认全部六条。")
     parser.add_argument("--manifest", default=None, help="覆盖配置中的数据清单路径。")
+    parser.add_argument("--baseline-run", default=None, help="面积/重复实验必填：完整种子 42 主测试输出目录。")
+    parser.add_argument("--frozen-policy", default=None, help="冻结策略 JSON；测试集必填。")
+    parser.add_argument("--freeze-development", action="store_true", help="完整开发集运行后选择并冻结规则。")
+    parser.add_argument("--warmup", action="store_true", help="计量前执行一次中预算预热，单独记录。")
     parser.add_argument("--report", default=None, help="额外写出报告 JSON 的路径。")
     args = parser.parse_args()
 
@@ -80,6 +86,10 @@ def main() -> int:
         image_offset=args.image_offset,
         image_limit=args.image_limit,
         manifest_path=args.manifest,
+        baseline_run=args.baseline_run,
+        frozen_policy=args.frozen_policy,
+        freeze_development=args.freeze_development,
+        warmup=args.warmup,
         device=args.device,
         policies=policies,
     )

@@ -9,11 +9,12 @@
 
 等预算约束（PRD §7.6 / FR-05）：批量 N 个样本按分数升序排序，最低 ``floor(N/3)`` 个
 分配低预算、最高 ``floor(N/3)`` 个分配高预算、其余中预算；同分按固定样本 ID 排序。
-因此要求 ``N % 3 == 0`` 且档位满足 ``low + high == 2 * middle``，此时总体平均 K 恒等于中预算。
+只要求档位满足 ``low + high == 2 * middle``，此时总体平均 K 恒等于中预算。
 """
 
 from __future__ import annotations
 
+import math
 import random
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -74,35 +75,42 @@ FALLBACK_TIERS = BudgetTiers(low=1, middle=3, high=5)
 
 @dataclass(frozen=True)
 class FeatureNormalizer:
-    """z-score 归一化参数，只在开发集拟合、测试集只应用（PRD §7.4）。"""
+    """仅在开发集拟合 min-max，应用时裁剪到 [0, 1]；常量特征恒为零。"""
 
-    area_mean: float = 0.0
-    area_std: float = 1.0
-    boundary_mean: float = 0.0
-    boundary_std: float = 1.0
+    area_min: float = 0.0
+    area_max: float = 1.0
+    boundary_min: float = 0.0
+    boundary_max: float = 1.0
+
+    def __post_init__(self) -> None:
+        values = (self.area_min, self.area_max, self.boundary_min, self.boundary_max)
+        if not all(math.isfinite(value) for value in values):
+            raise ValueError("归一化参数必须为有限值")
+        if self.area_min > self.area_max or self.boundary_min > self.boundary_max:
+            raise ValueError("归一化最小值不能大于最大值")
 
     @classmethod
     def fit(cls, features: Sequence[MaskFeatures]) -> FeatureNormalizer:
         if not features:
             raise ValueError("拟合归一化参数需要至少一个样本")
-        areas = np.array([f.area_ratio for f in features], dtype=np.float64)
-        boundaries = np.array([f.boundary_norm for f in features], dtype=np.float64)
-
-        def _safe_std(values: np.ndarray) -> float:
-            std = float(values.std())
-            return std if std > 0.0 else 1.0
-
-        return cls(
-            area_mean=float(areas.mean()),
-            area_std=_safe_std(areas),
-            boundary_mean=float(boundaries.mean()),
-            boundary_std=_safe_std(boundaries),
-        )
+        areas = [f.area_ratio for f in features]
+        boundaries = [f.boundary_norm for f in features]
+        if not all(math.isfinite(value) for value in areas + boundaries):
+            raise ValueError("开发集特征必须为有限值")
+        return cls(min(areas), max(areas), min(boundaries), max(boundaries))
 
     def transform(self, features: MaskFeatures) -> tuple[float, float]:
-        area = (features.area_ratio - self.area_mean) / self.area_std
-        boundary = (features.boundary_norm - self.boundary_mean) / self.boundary_std
-        return float(area), float(boundary)
+        def scale(value: float, minimum: float, maximum: float) -> float:
+            if not math.isfinite(value):
+                raise ValueError("输入特征必须为有限值")
+            if maximum == minimum:
+                return 0.0
+            return max(0.0, min(1.0, (value - minimum) / (maximum - minimum)))
+
+        return (
+            scale(features.area_ratio, self.area_min, self.area_max),
+            scale(features.boundary_norm, self.boundary_min, self.boundary_max),
+        )
 
 
 @dataclass(frozen=True)
@@ -151,10 +159,10 @@ def level_for_k(tiers: BudgetTiers, k: int) -> str:
 
 
 def policy_score(features: MaskFeatures, policy: BudgetPolicy) -> float:
-    """``w_area * z(area) + w_boundary * z(boundary)``，分数越高预算越高。"""
-    area_z, boundary_z = policy.normalizer.transform(features)
+    """``w_area * normalized_area + w_boundary * normalized_boundary``，分数越高预算越高。"""
+    area_normalized, boundary_normalized = policy.normalizer.transform(features)
     weight_area, weight_boundary = policy.weights
-    return weight_area * area_z + weight_boundary * boundary_z
+    return weight_area * area_normalized + weight_boundary * boundary_normalized
 
 
 def allocate_budget(features: MaskFeatures, policy: BudgetPolicy) -> int:
@@ -167,6 +175,8 @@ def allocate_budget(features: MaskFeatures, policy: BudgetPolicy) -> int:
         return tiers.k(policy.level)
     score = policy_score(features, policy)
     low_threshold, high_threshold = policy.thresholds
+    if low_threshold == high_threshold and score == low_threshold:
+        return tiers.middle
     if score <= low_threshold:
         return tiers.low
     if score >= high_threshold:
@@ -181,7 +191,7 @@ def allocate_batch(
 ) -> list[BudgetAssignment]:
     """批量等预算分档（FR-05）。
 
-    要求 ``len(sample_ids) % 3 == 0``；返回顺序与输入一致。
+    余数样本分配中预算；返回顺序与输入一致。
     """
     if len(sample_ids) != len(features_list):
         raise ValueError(
@@ -194,9 +204,6 @@ def allocate_batch(
         level = policy.level
         k = tiers.k(level)
         return [BudgetAssignment(sid, 0.0, level, k) for sid in sample_ids]
-
-    if count % 3 != 0:
-        raise ValueError(f"批量等预算分档要求 N 能被 3 整除，实际 N={count}")
 
     scores = [policy_score(features, policy) for features in features_list]
     order = sorted(range(count), key=lambda i: (scores[i], sample_ids[i]))

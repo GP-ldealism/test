@@ -131,3 +131,23 @@ def test_current_code_commit_returns_string(tmp_path: Path) -> None:
     value = current_code_commit(tmp_path)
     assert isinstance(value, str)
     assert value  # 不可用时为 "unknown"，但始终非空
+
+
+def test_source_fingerprint_tracks_untracked_upstream_and_deletions(tmp_path: Path) -> None:
+    from app.cache import source_provenance
+
+    (tmp_path / "app").mkdir()
+    source = tmp_path / "app" / "new_module.py"
+    source.write_text("x = 1", encoding="utf-8")
+    first = source_provenance(tmp_path)
+    (tmp_path / "README.md").write_text("documentation only", encoding="utf-8")
+    assert source_provenance(tmp_path)["source_sha256"] == first["source_sha256"]
+    upstream = tmp_path / "third_party" / "LanPaintBench"
+    upstream.mkdir(parents=True)
+    extra = upstream / "sampler.py"
+    extra.write_text("x = 2", encoding="utf-8")
+    assert source_provenance(tmp_path)["source_sha256"] != first["source_sha256"]
+    extra.unlink()
+    assert source_provenance(tmp_path)["source_sha256"] == first["source_sha256"]
+    source.unlink()
+    assert source_provenance(tmp_path)["source_sha256"] != first["source_sha256"]

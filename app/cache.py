@@ -59,6 +59,25 @@ def current_code_commit(project_root: str | Path | None = None) -> str:
     return completed.stdout.strip() or "unknown"
 
 
+def source_provenance(project_root: str | Path) -> dict[str, Any]:
+    """记录实际源码（含未提交和未跟踪文件），而非只用 HEAD 标识缓存。"""
+    root = Path(project_root).resolve()
+    paths: set[Path] = set()
+    for directory in ("app", "scripts", "third_party/LanPaintBench"):
+        paths.update((root / directory).rglob("*.py"))
+    paths.update(root.glob("requirements*.txt"))
+    files = {
+        path.relative_to(root).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in sorted(paths) if path.is_file()
+    }
+    canonical = json.dumps(files, sort_keys=True, separators=(",", ":"))
+    return {
+        "git_commit": current_code_commit(root),
+        "source_sha256": hashlib.sha256(canonical.encode("utf-8")).hexdigest(),
+        "files": files,
+    }
+
+
 def make_cache_entry(
     *,
     code_commit: str,
