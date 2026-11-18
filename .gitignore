@@ -3,13 +3,18 @@ checkpoints/
 *.pt
 *.pth
 
+/results
+/results/*
+.idea
+.vscode
+/dev
+
 # 上游克隆（含嵌套 .git，不入库；恢复信息见 docs/上游溯源.md）
 third_party/LanPaintBench/
 
 # 数据与缓存
 cache/
 data/_cache/
-data/samples/original/
 results/raw/**/images/
 results/ui/
 
