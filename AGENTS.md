@@ -1,31 +1,99 @@
 # AGENTS.md
 
+Guidance for automated agents working in this repository. Human-facing instructions live in
+`README.md` and `docs/使用说明.md`; the research result lives in `docs/最终实验报告.md`.
+
 ## Scope & current state
-- Windows/PowerShell repo for a LanPaint-based 256x256 image inpainting prototype (Python 3.12, PyTorch/CUDA). Main app code: `app/` (`data`, `masks`, `features`, `budget`, `restore`, `cache`, `config`, `metrics`, `experiment`, `ui`); entry scripts: `scripts/`; configs: `configs/*.yaml`.
-- S1-S4 and basic S6 UI exist; S5 batch/experiment formal completion is paused. Do not claim frozen rules, full dev/test experiments, or complete UI acceptance unless you run/verify them (see `docs/项目进度.md`, `docs/下一步计划.md`).
+
+- Windows/PowerShell repo: a LanPaint-based 256x256 image inpainting prototype **plus a completed
+  inference-budget study**. App code in `app/` (`data`, `masks`, `features`, `budget`, `restore`,
+  `cache`, `config`, `metrics`, `experiment`, `policy_freeze`, `ui`); entry scripts in `scripts/`;
+  experiment specs in `configs/*.yaml`; offline analysis in `analysis/`; CI in `ci/` and
+  `.github/workflows/cpu.yml`.
+- **S1–S6, the frozen rule, the full test scale and the write-up are done.** 540 real generations
+  (dev 180 + main 270 + area 90 + seeds 2026/3407 90 each), 1080 policy records, 0 failures.
+  Result: the adaptive rule M1 is **worse** than fixed K=5 on the 30-image test set
+  (LPIPS 0.119657 vs 0.117012, +2.26%, paired 95% CI [-0.001336, 0.006592] crossing zero).
+  The fixed K=5 default is kept; M1 is archived as an evaluated (negative) strategy, not a feature.
+- Do not claim quality improvements that the report does not support; quote the paired statistics.
 
 ## Environment & prerequisites
-- UI/real inference expects the existing LanPaint env: `D:\Study\Postgraduate\GPT\envs\lanpaint\Scripts\python.exe` (`start_ui.ps1` hardcodes this and sets `GRADIO_ANALYTICS_ENABLED=False`).
-- Real `app.restore.restore`/UI repair needs NVIDIA CUDA GPU; `scripts/smoke_inference.py` and experiments default to `--device cuda`. Many unit tests are offline/CPU-safe (no model required).
-- Upstream is **not vendored**: `third_party/LanPaintBench/` and `checkpoints/256x256_diffusion_uncond.pt` are gitignored. Restore/fix commit and weight hash from `docs/上游溯源.md` before touching inference. Do **not** modify upstream; do **not** import upstream `run.py`.
 
-## Common commands (run from repo root)
-- UI: `./start_ui.ps1` or `python -m app.ui` (serves local Gradio, typically `127.0.0.1:7860`; Ctrl+C to stop). Quick real UI/API check: `python scripts/check_ui.py` (launches temp service, runs repair/download assertions).
-- Tests/lint: `python -m pytest tests -q --tb=short` and `python -m ruff check app scripts tests` (last recorded: 106 passed, ruff clean).
-- Smoke inference: `python scripts/smoke_inference.py --runs 1` (or `--runs 10` for gate; writes `results/raw/s1_smoke/`).
-- Offline metrics: `python scripts/evaluate.py --exp <id>` (reads `results/raw/<id>/images/*.png`, resolves reference/mask from `report.json` config or `--reference/--mask`, writes `results/metrics/<id>/`).
-- Data/manifest: `python scripts/prepare_samples.py` (50 orig images x 3 mask types x 2 areas = 300 rows in `data/manifest.csv`; prefers local parquet in `data/_cache/`).
-- Experiments: `python scripts/run_experiment.py --config configs/dev.yaml --split dev` (see script header for `main/area/repeat` examples; supports `--seed`, `--policies`, `--image-offset/--image-limit`, `--target-area`, `--mask-type`, cache reuse on rerun).
+- Real inference/experiments use the shared env
+  `D:\Study\Postgraduate\GPT\envs\lanpaint\Scripts\python.exe` (Python 3.12.16, torch 2.11.0+cu128)
+  and need an NVIDIA GPU. `start_ui.ps1` hardcodes this interpreter.
+- The repo currently ships `requirements.yml` (conda, torch 2.14.1+cu126). **That is not the env the
+  archived results were produced in**, and the three `requirements-lanpaint-*.txt` lock files were
+  removed from the repo — so `frozen_policy.json`'s `source_sha256` no longer matches the tree.
+  Treat this as an open issue, not as a working configuration (see Open issues).
+- Offline checks need only CPU: `ci/requirements.txt` (torch CPU wheels + test deps).
+- Not vendored (gitignored): `checkpoints/256x256_diffusion_uncond.pt` and
+  `third_party/LanPaintBench/`. Restore hash/commit from `docs/上游溯源.md` before touching
+  inference. Never modify upstream and never import its `run.py`.
 
-## Architecture & data conventions
-- Tensor/domain conventions: images `(1,3,256,256)` float32 in `[-1,1]`; masks `(1,1,256,256)` `{0,1}` where **1 = missing** internally. `app.data.mask_to_upstream` inverts for LanPaintBench (upstream 1 = known/keep).
-- `app.restore`: builds/caches model per `(checkpoint, device)` and pipeline per `(K, sampling params, device, checkpoint)`; resets seeds per inference; measures NFE by wrapping UNet forward (do not infer by formula). Official sampling defaults come from upstream makefile (`K/n_steps`, `outer_steps=T=20`, etc.); budgets 2/5/8.
-- Masks/features: `app.masks` generates deterministic `center/scratch/scatter` at 15%/30%; features (`area_ratio`, `boundary_norm`) come from mask only (no missing-pixel leakage). `app.budget` defines tiers/policies/allocation; `app.cache` keys include code commit, checkpoint SHA256, image/mask hashes, seed, precision, K, outer steps, all sampling params.
-- `app.experiment` runs low/mid/high tiers per sample, reuses cache, then reuses tier outputs across policies (B1/B2/B3/M1/A1/C1) without extra inference; outputs `results/raw/<exp>/` and `results/metrics/<exp>/`. `configs/*` are experiment specs (relative paths resolved vs project root by `app.config`).
-- Data/results layout (mostly gitignored): `data/manifest.csv`, `data/masks/` tracked samples/masks as present; `data/samples/original/`, `data/_cache/`, `checkpoints/`, `results/raw/*/images/`, `results/ui/`, `.cache/` are ignored/generated.
+## Common commands (from repo root)
+
+```powershell
+$py = 'D:\Study\Postgraduate\GPT\envs\lanpaint\Scripts\python.exe'
+& $py -m pytest tests -q                                            # 133 passed (offline)
+& $py -m ruff check app scripts tests analysis ci                   # must stay clean
+& $py ci\run_cpu_tests.py                                           # offline CPU gate, blocks network
+& $py tools\check_lanpaint_env.py                                   # env/CUDA/ffmpeg audit
+.\start_ui.ps1                                                      # Gradio UI on 127.0.0.1:7860
+& $py scripts\check_ui.py                                           # end-to-end UI repair + download
+& $py scripts\smoke_inference.py --runs 1                           # real inference, NFE/VRAM evidence
+& $py scripts\run_experiment.py --config configs\dev.yaml --split dev --freeze-development --warmup
+& $py analysis\diagnose_budget.py --cases-per-side 5                # needs local originals + run PNGs
+```
+
+Coverage (optional, kept out of the shared env): see `docs/覆盖率报告.md`.
+
+## Architecture & conventions
+
+- Tensors: images `(1,3,256,256)` float32 in `[-1,1]`; masks `(1,1,256,256)` `{0,1}` with **1 = missing**.
+  `app.data.mask_to_upstream` inverts for LanPaintBench (upstream 1 = keep).
+- Budget: tiers K=2/5/8, T=20; batch allocation gives the lowest/highest `floor(N/3)` of sorted
+  scores the low/high tier so total NFE equals all-middle. Policies: B1/B2/B3 fixed, M1 (area+boundary,
+  frozen weights `(1,-1)`), A1 (area only), C1 (M1 tiers shuffled). NFE is measured by wrapping the UNet
+  forward, never derived from a formula.
+- `app.cache` keys cover code provenance, checkpoint hash, image/mask hashes, seed, precision, K, outer
+  steps and all sampling params. `app.experiment` runs each sample at all three tiers once and reuses
+  the outputs across the six policies; `comparison_complete` and `equal_nfe` in `report.json` decide
+  whether a run is a strict equal-budget comparison.
+- **Frozen-source rule:** the fingerprint in `app.cache.source_provenance` covers `app/**`, `scripts/**`,
+  `third_party/LanPaintBench/**` and `requirements*.txt`. Changing any of them invalidates
+  `frozen_policy.json` and every cache entry. Put new analysis in `analysis/` (not fingerprinted);
+  if inference code must change, register a new version and re-freeze — never patch hashes by hand.
+- Data: `data/manifest.csv` (300 rows = 50 images x 3 mask types x 2 areas), `data/masks/` and
+  `data/samples/original/` (50 PNGs) are tracked. `data/_cache/`, `checkpoints/`,
+  `results/raw/**/images/`, `results/ui/`, `.cache/` stay untracked.
 
 ## Gotchas
-- UI input: keep original from editor background; derive brush mask from layer alpha to avoid paint color contaminating source; empty mask -> original, all-missing mask rejected. GPU requests serialized; UI writes isolated run dirs under `results/ui/`.
-- `dev_budget`/S5 trial artifacts are incomplete/minimal evidence; do not treat as final research conclusions. Known S5 issues to respect before resuming formal runs: seed-specific output isolation, repeat baseline coverage, divisible-by-3 allocation edge cases, and cache traceability when code is uncommitted.
-- `README.md` / some docs may have encoding artifacts in certain viewers; prefer config/scripts/code as executable truth.
-- Preserve existing verified guidance in `docs/` and `AI项目实施计划_LanPaint主方案与工业检测备选.md`; commit/push only when explicitly requested.
+
+- UI input: take the original from the editor background and the mask from layer alpha; empty mask ->
+  return original; all-missing mask rejected. GPU work is serialized; runs land in `results/ui/<ts>_<id>/`.
+- `.gitignore` currently ignores `/results` and `/results/*`; existing evidence is tracked, but **new**
+  files under `results/` will be silently untracked. Force-add (`git add -f`) anything that is evidence.
+- `results/raw/s1_smoke/report.json` currently holds a 1-run record, not the original 10-run D2 gate.
+- The `paper/` PDF (~15 MB) is a document attachment, not a code artifact.
+- An analysis directory can only be regenerated on a machine that still has the originals and the
+  per-run `images/`; a clean clone can run tests, CI and the UI but not `analysis/diagnose_budget.py`.
+
+## Open issues (do not "fix" silently)
+
+1. `requirements-lanpaint-{direct,lock,shared-base}.txt` are missing, so the frozen source fingerprint
+   (`b2f9f3ad…`) does not match `frozen_policy.json` (`a5921acb…`); any `--frozen-policy` run fails.
+2. `.gitignore` ignores all of `/results`, which can hide new experiment artifacts.
+3. `results/raw/s1_smoke/report.json` was overwritten with a 1-run record (sample/mask pair mismatched).
+4. `paper/` PDF inflates the repo (~15 MB); consider LFS or an external link.
+
+## Docs index
+
+| Topic | File |
+|---|---|
+| Result, cases, limits, PRD acceptance | `docs/最终实验报告.md` |
+| How to run UI / experiments / analysis / troubleshooting | `docs/使用说明.md` |
+| Clean-clone reproduction record | `docs/复现记录.md` |
+| Test coverage (83%) and gaps | `docs/覆盖率报告.md` |
+| Collaboration status & upload log | `docs/项目进度.md`, `docs/下一步计划.md`, `docs/队友改进意见.md` |
+| Upstream commit, weight URL and SHA-256 | `docs/上游溯源.md` |
