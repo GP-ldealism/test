@@ -1,71 +1,157 @@
-"""本地 Gradio 修复界面，复用现有固定预算推理。"""
-
 from __future__ import annotations
 
+import base64
+import io
 import json
 import os
 import threading
 from dataclasses import asdict
 from datetime import datetime
+from pathlib import Path
+from typing import Annotated
 from uuid import uuid4
 
-os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
-
-import gradio as gr
 import numpy as np
 import torch
-from PIL import Image
+import uvicorn
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+from PIL import Image, UnidentifiedImageError
 
 from app.data import align_image, align_mask, save_result
 from app.restore import PROJECT_ROOT, RestoreConfig, restore
 
 OUTPUT_DIR = PROJECT_ROOT / "results" / "ui"
+STATIC_DIR = Path(__file__).resolve().parent / "ui_static"
 GPU_LOCK = threading.Lock()
+BUDGETS = (2, 5, 8)
+MODE_ALIASES = {
+    "brush": "brush",
+    "upload": "upload",
+    "画笔涂抹": "brush",
+    "上传掩码": "upload",
+}
+MODE_LABELS = {"brush": "画笔涂抹", "upload": "上传掩码"}
+
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def prepare_input(editor, uploaded_mask, mask_mode):
-    """从背景读取原图，只从绘画层 alpha 读取笔迹，避免涂抹污染原图。"""
-    if not editor or editor.get("background") is None:
-        raise gr.Error("请先上传一张图片。")
-    original = align_image(editor["background"])
-    if mask_mode == "上传掩码":
-        if uploaded_mask is None:
-            raise gr.Error("请上传掩码：白色表示修复区域，黑色表示保留区域。")
-        mask_array = np.asarray(align_mask(uploaded_mask)) >= 128
-    else:
+class UIValidationError(ValueError):
+    pass
+
+
+class UICudaUnavailableError(RuntimeError):
+    pass
+
+
+class UIOutOfMemoryError(RuntimeError):
+    pass
+
+
+class UIInferenceError(RuntimeError):
+    pass
+
+
+def _normalize_mode(mask_mode: str) -> str:
+    mode = MODE_ALIASES.get(str(mask_mode).strip())
+    if mode is None:
+        raise UIValidationError("请选择画笔涂抹或上传掩码。")
+    return mode
+
+
+def _validate_budget(budget: int | str) -> int:
+    try:
+        value = int(str(budget).strip())
+    except (TypeError, ValueError) as exc:
+        raise UIValidationError("请选择低、中或高预算。") from exc
+    if value not in BUDGETS:
+        raise UIValidationError("预算只能是 K=2、K=5 或 K=8。")
+    return value
+
+
+def _validate_seed(seed: int | str) -> int:
+    try:
+        value = int(str(seed).strip())
+    except (TypeError, ValueError) as exc:
+        raise UIValidationError("随机种子应为 0 到 4294967295 的整数。") from exc
+    if not 0 <= value <= 2**32 - 1:
+        raise UIValidationError("随机种子应为 0 到 4294967295 的整数。")
+    return value
+
+
+def _decode_image(data: bytes, label: str) -> Image.Image:
+    if not data:
+        raise UIValidationError(f"请上传{label}。")
+    try:
+        with Image.open(io.BytesIO(data)) as image:
+            image.load()
+            return image.copy()
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        raise UIValidationError(f"{label}无法解析，请上传 PNG 或 JPG 图片。") from exc
+
+
+def _png_data_url(image: Image.Image) -> str:
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+    return f"data:image/png;base64,{encoded}"
+
+
+def prepare_input(image: Image.Image, mask_image: Image.Image | None, mask_mode: str):
+    mode = _normalize_mode(mask_mode)
+    original = align_image(image)
+    if mask_image is None:
         mask_array = np.zeros((256, 256), dtype=bool)
-        for layer in editor.get("layers") or []:
-            alpha = layer.convert("RGBA").getchannel("A")
-            mask_array |= np.asarray(align_mask(alpha)) > 0
+    elif mode == "upload":
+        mask_array = np.asarray(align_mask(mask_image)) >= 128
+    else:
+        alpha = mask_image.convert("RGBA").getchannel("A")
+        mask_array = np.asarray(align_mask(alpha)) > 0
     if mask_array.all():
-        raise gr.Error("请保留一部分原图；当前版本不支持整张图片全部遮挡。")
+        raise UIValidationError("请保留一部分原图；当前版本不支持整张图片全部遮挡。")
     pixels = np.asarray(original).copy()
     pixels[mask_array] = 0
-    mask_image = Image.fromarray(mask_array.astype(np.uint8) * 255)
-    return original, mask_image, Image.fromarray(pixels)
+    binary_mask = Image.fromarray(mask_array.astype(np.uint8) * 255)
+    preview = Image.fromarray(pixels)
+    return original, binary_mask, preview
 
 
-def preview_input(editor, uploaded_mask, mask_mode):
-    _, mask, preview = prepare_input(editor, uploaded_mask, mask_mode)
-    return preview, mask
+def _make_status(k: int, result, missing_area: float, empty_mask: bool) -> dict:
+    message = "修复完成"
+    if empty_mask:
+        message = "未选择修复区域，已直接返回原图。"
+    return {
+        "k": k,
+        "nfe": result.nfe,
+        "elapsed_seconds": result.elapsed_seconds,
+        "peak_vram_mb": result.peak_vram_mb,
+        "missing_area": missing_area,
+        "message": message,
+    }
 
 
-def run_repair(editor, uploaded_mask, mask_mode, budget, seed, progress=gr.Progress()):  # noqa: B008 - Gradio 注入进度对象
-    original, mask_image, preview = prepare_input(editor, uploaded_mask, mask_mode)
-    if budget not in (2, 5, 8):
-        raise gr.Error("请选择低、中或高预算。")
-    if seed is None or int(seed) != seed or not 0 <= seed <= 2**32 - 1:
-        raise gr.Error("随机种子应为 0 到 4294967295 的整数。")
-    image = torch.from_numpy(np.asarray(original, dtype=np.float32) / 127.5 - 1)
-    image = image.permute(2, 0, 1).unsqueeze(0).contiguous()
-    mask = torch.from_numpy((np.asarray(mask_image) > 0).astype(np.float32))[None, None]
-    if mask.any() and not torch.cuda.is_available():
-        raise gr.Error("未检测到可用的 NVIDIA GPU，请在 LanPaint 环境中启动。")
-    config = RestoreConfig(n_steps=int(budget), seed=int(seed))
-    progress(0.1, desc="等待模型加载与修复，首次运行需要更长时间")
+def run_repair(
+    image: Image.Image,
+    mask_image: Image.Image | None,
+    mask_mode: str,
+    budget: int | str,
+    seed: int | str,
+) -> dict:
+    mode = _normalize_mode(mask_mode)
+    original, binary_mask, preview = prepare_input(image, mask_image, mode)
+    k = _validate_budget(budget)
+    value = _validate_seed(seed)
+    image_tensor = torch.from_numpy(np.asarray(original, dtype=np.float32) / 127.5 - 1)
+    image_tensor = image_tensor.permute(2, 0, 1).unsqueeze(0).contiguous()
+    mask_tensor = torch.from_numpy((np.asarray(binary_mask) > 0).astype(np.float32))[None, None]
+    missing_area = float(mask_tensor.mean())
+    config = RestoreConfig(n_steps=k, seed=value)
     try:
+        if mask_tensor.any() and not torch.cuda.is_available():
+            raise UICudaUnavailableError("未检测到可用的 NVIDIA GPU，请在 LanPaint 环境中启动。")
         with GPU_LOCK:
-            result = restore(image, mask, config)
+            result = restore(image_tensor, mask_tensor, config)
         if not torch.isfinite(result.image).all():
             raise ValueError("输出包含无效数值，请更换种子重试。")
         run_dir = OUTPUT_DIR / (datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + uuid4().hex[:8])
@@ -73,93 +159,104 @@ def run_repair(editor, uploaded_mask, mask_mode, budget, seed, progress=gr.Progr
         result_path = run_dir / "result.png"
         save_result(result_path, result.image)
         original.save(run_dir / "original.png")
-        mask_image.save(run_dir / "mask.png")
+        binary_mask.save(run_dir / "mask.png")
         preview.save(run_dir / "input_preview.png")
         payload = {
             "config": asdict(config),
-            "mask_source": mask_mode,
-            "missing_area": float(mask.mean()),
+            "mask_source": MODE_LABELS[mode],
+            "missing_area": missing_area,
             "nfe": result.nfe,
             "elapsed_seconds": result.elapsed_seconds,
             "peak_vram_mb": result.peak_vram_mb,
         }
-        config_path = run_dir / "config.json"
-        config_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, default=str), encoding="utf-8")
-    except torch.cuda.OutOfMemoryError as exc:
-        raise gr.Error("显存不足，请关闭占用 GPU 的程序后重试。") from exc
-    except (OSError, RuntimeError, ValueError) as exc:
-        raise gr.Error(f"修复失败：{exc}") from exc
-    progress(1, desc="修复完成")
-    status = (
-        f"**修复完成** · K={int(budget)} · NFE={result.nfe} · "
-        f"采样耗时 {result.elapsed_seconds:.2f} 秒 · 峰值显存 {result.peak_vram_mb:.0f} MB"
-        f"\n\n修复面积 {float(mask.mean()):.1%}。"
-    )
-    if not mask.any():
-        status += "未选择修复区域，已直接返回原图。"
-    return preview, mask_image, str(result_path), status, str(result_path), str(config_path)
-
-
-def load_example():
-    paths = sorted((PROJECT_ROOT / "data" / "samples" / "original").glob("*.png"))
-    if not paths:
-        raise gr.Error("本地尚无示例图片，请直接上传图片。")
-    with Image.open(paths[0]) as image:
-        original = align_image(image)
-    return {"background": original, "layers": [], "composite": original}
-
-
-def build_ui():
-    theme = gr.themes.Soft(font=["Arial", "sans-serif"], font_mono=["Consolas", "monospace"])
-    with gr.Blocks(title="LanPaint 图像修复", theme=theme) as demo:
-        gr.Markdown("# LanPaint 图像修复\n上传图片，标记需要修复的区域，让 AI 补全画面。")
-        gr.Markdown("当前使用基础模型，输出尺寸为 **256 × 256**。建议先使用中预算体验。")
-        with gr.Row():
-            with gr.Column():
-                editor = gr.ImageEditor(
-                    label="① 上传图片并涂抹修复区域", type="pil", image_mode="RGBA",
-                    sources=["upload"], transforms=(), height=420,
-                    brush=gr.Brush(colors=["#ffffff"], color_mode="fixed"),
-                )
-                example = gr.Button("载入本地示例图片")
-                mode = gr.Radio(["画笔涂抹", "上传掩码"], value="画笔涂抹", label="掩码来源")
-                uploaded = gr.Image(label="上传掩码（白色修复，黑色保留）", type="pil", visible=False)
-                with gr.Row():
-                    budget = gr.Dropdown(
-                        [("低预算 · K=2", 2), ("中预算 · K=5（推荐）", 5), ("高预算 · K=8", 8)],
-                        value=5, label="② 修复预算",
-                    )
-                    seed = gr.Number(value=42, precision=0, label="随机种子")
-                with gr.Row():
-                    preview_button = gr.Button("预览修复区域")
-                    run = gr.Button("③ 开始修复", variant="primary")
-            with gr.Column():
-                output = gr.Image(label="修复结果", type="filepath", interactive=False, height=420)
-                status = gr.Markdown("等待开始。首次运行需要加载模型，请耐心等待。")
-                with gr.Row():
-                    result_file = gr.File(label="下载结果图", interactive=False)
-                    config_file = gr.File(label="下载本次配置", interactive=False)
-                with gr.Row():
-                    preview = gr.Image(label="遮挡输入预览", interactive=False)
-                    mask_preview = gr.Image(label="实际修复区域", interactive=False)
-        gr.Markdown("提示：高预算不保证更好的效果；可更换种子尝试。上传图片没有完整参考答案，因此不展示 PSNR / LPIPS。")
-        mode.change(lambda value: gr.update(visible=value == "上传掩码"), mode, uploaded, queue=False)
-        example.click(load_example, outputs=editor, queue=False)
-        preview_button.click(preview_input, [editor, uploaded, mode], [preview, mask_preview], queue=False)
-        run.click(
-            run_repair, [editor, uploaded, mode, budget, seed],
-            [preview, mask_preview, output, status, result_file, config_file],
-            concurrency_limit=1, concurrency_id="lanpaint_gpu", api_name="repair",
+        (run_dir / "config.json").write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2, default=str),
+            encoding="utf-8",
         )
-    return demo.queue(default_concurrency_limit=1, max_size=8)
+    except torch.cuda.OutOfMemoryError as exc:
+        raise UIOutOfMemoryError("显存不足，请关闭占用 GPU 的程序后重试。") from exc
+    except UIValidationError:
+        raise
+    except UICudaUnavailableError:
+        raise
+    except (OSError, RuntimeError, ValueError) as exc:
+        raise UIInferenceError(f"修复失败：{exc}") from exc
+    base = f"/runs/{run_dir.name}"
+    return {
+        "run_id": run_dir.name,
+        "preview_url": f"{base}/input_preview.png",
+        "mask_url": f"{base}/mask.png",
+        "result_url": f"{base}/result.png",
+        "config_url": f"{base}/config.json",
+        "status": _make_status(k, result, missing_area, not bool(mask_tensor.any())),
+    }
+
+
+app = FastAPI(title="LanPaint 图像修复工作台", docs_url=None, redoc_url=None)
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+app.mount("/runs", StaticFiles(directory=OUTPUT_DIR), name="runs")
+
+
+@app.get("/")
+def index():
+    return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.post("/api/preview")
+def preview(
+    image: Annotated[UploadFile, File()],
+    mask: Annotated[UploadFile | None, File()] = None,
+    mode: Annotated[str, Form()] = "brush",
+):
+    try:
+        source = _decode_image(image.file.read(), "图片")
+        mask_data = mask.file.read() if mask is not None else None
+        mask_image = _decode_image(mask_data, "掩码") if mask_data else None
+        normalized_mode = _normalize_mode(mode)
+        if normalized_mode == "upload" and mask_image is None:
+            raise UIValidationError("请上传掩码：白色表示修复区域，黑色表示保留区域。")
+        _, binary_mask, preview_image = prepare_input(source, mask_image, normalized_mode)
+    except UIValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    mask_array = np.asarray(binary_mask) > 0
+    return {
+        "preview_data": _png_data_url(preview_image),
+        "mask_data": _png_data_url(binary_mask),
+        "missing_area": float(mask_array.mean()),
+    }
+
+
+@app.post("/api/repair")
+def repair(
+    image: Annotated[UploadFile, File()],
+    mask: Annotated[UploadFile | None, File()] = None,
+    mode: Annotated[str, Form()] = "brush",
+    budget: Annotated[str, Form()] = "5",
+    seed: Annotated[str, Form()] = "42",
+):
+    try:
+        source = _decode_image(image.file.read(), "图片")
+        mask_data = mask.file.read() if mask is not None else None
+        mask_image = _decode_image(mask_data, "掩码") if mask_data else None
+        result = run_repair(source, mask_image, mode, budget, seed)
+    except UIValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except UICudaUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except UIOutOfMemoryError as exc:
+        raise HTTPException(status_code=507, detail=str(exc)) from exc
+    except UIInferenceError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return result
 
 
 def main():
     cache_dir = PROJECT_ROOT / ".cache" / "cuda"
     cache_dir.mkdir(parents=True, exist_ok=True)
     os.environ.setdefault("CUDA_CACHE_PATH", str(cache_dir))
-    os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
-    build_ui().launch(server_name="127.0.0.1", share=False, inbrowser=False)
+    host = os.environ.get("LANPAINT_HOST", "127.0.0.1")
+    port = int(os.environ.get("LANPAINT_PORT", "7860"))
+    uvicorn.run(app, host=host, port=port, log_level="info")
 
 
 if __name__ == "__main__":
