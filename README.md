@@ -19,6 +19,8 @@
 
 GPU 请求串行排队；尚不支持运行中取消或自适应预算。无掩码时返回原图，全缺失掩码会提示重新选择。上传图片不展示需要参考答案的质量指标。真实 GPU 校验入口仍为 `python scripts/check_ui.py`，改为通过本地 HTTP API 调用。
 
+完整操作步骤（界面、批量实验、评价、排错）见[使用说明](docs/使用说明.md)。
+
 项目协作入口：[项目进度](docs/项目进度.md)、[下一步计划](docs/下一步计划.md)、[队友改进意见](docs/队友改进意见.md)。
 
 ## 当前验证状态
@@ -44,6 +46,8 @@ GPU 请求串行排队；尚不支持运行中取消或自适应预算。无掩�
 | 开发集分析与冻结配置 | [results/metrics/dev_budget](results/metrics/dev_budget/seed_42/20261116T084403334123Z_1d7f3deb/development_analysis.md) |
 | 运行前检查证据 | `results/validation/formal_preflight_20261116/` |
 | 干净克隆复现记录 | [docs/复现记录.md](docs/复现记录.md) |
+| 使用说明（界面/实验/评价/排错） | [docs/使用说明.md](docs/使用说明.md) |
+| 测试覆盖率报告（83%） | [docs/覆盖率报告.md](docs/覆盖率报告.md) |
 | 离线 CPU 检查 | `ci/run_cpu_tests.py`、`.github/workflows/cpu.yml` |
 
 ## 批量实验可靠性更新（2026-11-11）

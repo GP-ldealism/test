@@ -1,4 +1,4 @@
-# 模型权重（约 2 GB，不入库）
+﻿# 模型权重（约 2 GB，不入库）
 checkpoints/
 *.pt
 *.pth
@@ -27,6 +27,8 @@ __pycache__/
 
 # 本地缓存与编辑器
 .cache/
+.coverage
+htmlcov/
 .vscode/
 .DS_Store
 Thumbs.db
